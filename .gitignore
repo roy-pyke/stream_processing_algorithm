@@ -1,0 +1,22 @@
+# environments / build outputs (regenerable)
+.venv/
+bin/
+__pycache__/
+*.pyc
+
+# datasets (multi-GB; download + convert, see README)
+data/
+
+# generated workloads and scratch runs
+work/
+
+# raw per-run experiment logs (large; aggregated CSVs are tracked)
+results/acc/
+results/bias/
+results/colab/results/
+*.zip
+
+# third-party papers and code (copyrighted; not redistributed)
+refs/
+*.pdf
+!paper/figs/*.pdf
