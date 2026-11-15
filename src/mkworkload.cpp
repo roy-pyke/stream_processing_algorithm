@@ -21,7 +21,8 @@ struct VInfo {
 
 int main(int argc, char** argv) {
     if (argc < 6) {
-        fprintf(stderr, "usage: mkworkload data out queries_per_k kmax seed [prefix_p]\n");
+        fprintf(stderr, "usage: mkworkload data out queries_per_k kmax seed [prefix_p]\n"
+                        "       mkworkload data out pvldb|vldbj num_records seed [prefix_p]\n");
         return 1;
     }
     Dataset d;
@@ -30,6 +31,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (argc > 6) d.project_prefix((uint32_t)atoi(argv[6]));
+    std::string family = argv[3];
     int per_k = atoi(argv[3]);
     uint32_t kmax = std::min<uint32_t>((uint32_t)atoi(argv[4]), d.p);
     Rng rng(strtoull(argv[5], 0, 10));
@@ -80,6 +82,50 @@ int main(int argc, char** argv) {
         qs.push_back(std::move(q));
         return true;
     };
+    // Workload procedures of the OmniSketch papers (selected with "pvldb" / "vldbj" in place of
+    // queries_per_k; the next argument is then the number of sampled records):
+    //   kind 2 "pvldb" (Dataset.synthWorkload in the authors' omnisketch repository): for every
+    //           sampled record, one query per subset of at least two attributes.
+    //   kind 3 "vldbj" (SyntheticDataset.generateQueries in their omni-deletes repository): for
+    //           every sampled record and every k = 1..p, one query on k random attributes.
+    auto add_fixed = [&](int kind, uint64_t rec, std::vector<uint32_t> attrs) {
+        std::sort(attrs.begin(), attrs.end());
+        std::string key;
+        const uint32_t* r = d.row(rec);
+        for (uint32_t a : attrs) key += std::to_string(a) + "=" + std::to_string(r[a]) + ";";
+        if (!seen.insert(std::to_string(kind) + "|" + key).second) return false;
+        Query q;
+        q.kind = kind;
+        for (uint32_t a : attrs) q.attrs.push_back(a), q.vals.push_back(r[a]);
+        qs.push_back(std::move(q));
+        return true;
+    };
+    if (family == "pvldb" || family == "vldbj") {
+        int nrec = atoi(argv[4]);
+        for (int i = 0; i < nrec; i++) {
+            uint64_t rec = rng.below(d.n);
+            if (family == "pvldb") {
+                if (p > 16) { fprintf(stderr, "pvldb workload needs p <= 16\n"); return 1; }
+                for (uint32_t mask = 1; mask < (1u << p); mask++) {
+                    if (__builtin_popcount(mask) < 2) continue;
+                    std::vector<uint32_t> attrs;
+                    for (uint32_t a = 0; a < p; a++)
+                        if (mask >> a & 1) attrs.push_back(a);
+                    add_fixed(2, rec, attrs);
+                }
+            } else {
+                for (uint32_t k = 1; k <= p; k++) {
+                    std::vector<uint32_t> attrs;
+                    while (attrs.size() < k) {
+                        uint32_t a = (uint32_t)rng.below(p);
+                        if (std::find(attrs.begin(), attrs.end(), a) == attrs.end()) attrs.push_back(a);
+                    }
+                    add_fixed(3, rec, attrs);
+                }
+            }
+        }
+        kmax = 0;
+    }
     for (uint32_t k = 1; k <= kmax; k++) {
         int made = 0, tries = 0;
         while (made < per_k && tries++ < per_k * 50) made += add_query(0, rng.below(d.n), k, -1);

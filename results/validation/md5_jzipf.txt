@@ -1,0 +1,3 @@
+c88e2cd0f414bce716b617653fbf273a  data/jzipf10_5M.bin
+f00a7268daf30d51ee70571e372d2263  data/jzipf13_5M.bin
+b682b9eb92fde4f23a765cc9cc99322e  data/jzipf15_5M.bin

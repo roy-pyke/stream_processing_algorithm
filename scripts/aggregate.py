@@ -59,7 +59,7 @@ for log in sorted(glob.glob(os.path.join(res_dir, "*.log"))):
         err = np.abs(est - truth)
         rel = err / truth
         row = dict(dataset=g.ds.iloc[0], method=method, mem=float(g.mem.iloc[0]), seed=int(g.seed.iloc[0]), **runs[method])
-        for kind in (0, 1):
+        for kind in (0, 1, 2, 3):
             sel = (w.kind == kind).to_numpy()
             if sel.sum() == 0:
                 continue
@@ -75,6 +75,12 @@ for log in sorted(glob.glob(os.path.join(res_dir, "*.log"))):
                 row[f"mre{kind}_k{k}"] = rel[s2].mean() if s2.sum() >= 5 else np.nan
                 row[f"nae{kind}_k{k}"] = err[s2].mean() / N if s2.sum() >= 5 else np.nan
         row["nae_all"] = err.mean() / N
+        if method.startswith("cs") and g.cm.notna().all():
+            # counters only: the Count-Min bound of the anchor cell, without the sample
+            cme = np.abs(g.cm.to_numpy(float) - truth)
+            for k in range(1, 7):
+                s2 = ((w.kind == 0) & (w.npred == k)).to_numpy()
+                row[f"cmnae0_k{k}"] = cme[s2].mean() / N if s2.sum() >= 5 else np.nan
         if g.ht.notna().all():
             ht = g.ht.to_numpy(float)
             sd = g.sd.to_numpy(float)

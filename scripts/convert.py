@@ -3,6 +3,7 @@
 
   convert.py taxi   <yellow_tripdata_2019-01.parquet> <out.bin>
   convert.py census <USCensus1990.data.txt>           <out.bin>
+  convert.py dmv    <Vehicle__Snowmobile__and_Boat_Registrations.csv> <out.bin>
 
 Output: "STRM" | u32 p | u64 n | n*p u32 (row-major). All attributes are mapped
 to non-negative 32-bit integers (equality semantics are preserved).
@@ -67,5 +68,30 @@ def census(src, dst):
     write(dst, [data[:, j].astype(np.uint32) for j in range(data.shape[1])], names)
 
 
+def dmv(src, dst):
+    """New York State vehicle, snowmobile and boat registrations (data.ny.gov, dataset w4pv-hbkt),
+    the "DMV" table of the selectivity-estimation literature. 15 categorical attributes (the VIN and
+    the sparse weight/passenger columns are dropped); values are dictionary-coded in order of first
+    appearance; the stream order is the file order."""
+    import pandas as pd
+
+    names = ["Record Type", "Registration Class", "City", "State", "Zip", "County", "Model Year", "Make", "Body Type",
+             "Fuel Type", "Reg Valid Date", "Color", "Scofflaw Indicator", "Suspension Indicator", "Revocation Indicator"]
+    codes = [dict() for _ in names]
+    parts = [[] for _ in names]
+    for chunk in pd.read_csv(src, usecols=names, dtype=str, keep_default_na=False, chunksize=500000):
+        for j, name in enumerate(names):
+            c, u = pd.factorize(chunk[name], sort=False)
+            d = codes[j]
+            m = np.empty(len(u), dtype=np.uint32)
+            for i, val in enumerate(u):
+                x = d.get(val)
+                if x is None:
+                    x = d[val] = len(d)
+                m[i] = x
+            parts[j].append(m[c])
+    write(dst, [np.concatenate(x) for x in parts], names)
+
+
 if __name__ == "__main__":
-    {"taxi": taxi, "census": census}[sys.argv[1]](sys.argv[2], sys.argv[3])
+    {"taxi": taxi, "census": census, "dmv": dmv}[sys.argv[1]](sys.argv[2], sys.argv[3])
