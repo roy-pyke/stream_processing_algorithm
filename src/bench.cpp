@@ -15,8 +15,11 @@
 //   omnijs         as omnij, but "est" holds the always-scaled estimate and "ht" the Theorem 3.3 one
 //   omnij          bit-exact port of the authors' Java implementation (hashes, parameter search,
 //                  accounting, Theorem 3.3 estimator); the seed is used as their "repetition"
-//   cs:w:lf:gamma[:phi]  CoStrata with w buckets/attribute, house weight lf, exponent gamma;
-//                  phi > 0 adds pair-counter tables using that fraction of the budget
+//   cs:w:lf:gamma[:phi2[:phi3[:rake]]]  CoStrata with w buckets/attribute, house weight lf,
+//                  exponent gamma; phi2 / phi3 > 0 add pair / triple counter tables using that
+//                  fraction of the budget; rake = 1 calibrates to all anchors of a query (IPF)
+//                  instead of the lightest one; index = 1 builds a query-time bucket index
+//                  (spec: cs:w:lf:gamma:phi2:phi3:rake:index)
 //   csh:w:lf       CoStrata-H: CoStrata over distinct tuples with sample-and-hold counts
 // Output columns of "acc": name,spec,mem,seed,query,est,ht,sd,cm. For OmniSketch specs the last
 // three hold: the Theorem 3.3 estimate (bound when the intersection is small), |S_cap|, n_max;
@@ -251,18 +254,22 @@ int main(int argc, char** argv) {
                 if (w2 || w3) s.enable_marginals(w2, w3);
                 t_ing = ingest(s, d);
                 s.finalize();
+                bool use_index = sp.a.size() > 6 && sp.a[6] > 0; // query-time bucket index
+                if (use_index) s.build_index();
                 ht.resize(qs.size()); sd.resize(qs.size()); cm.resize(qs.size());
                 double t0 = now_sec();
+                bool rake = sp.a.size() > 5 && sp.a[5] > 0; // calibrate to all anchors (raking)
                 for (size_t i = 0; i < qs.size(); i++) {
                     CoStrata::Est e = s.estimate(qs[i]);
-                    est[i] = e.hajek; ht[i] = e.ht; sd[i] = e.sd_hajek; cm[i] = e.cm;
+                    est[i] = rake ? s.estimate_rake(qs[i]) : e.hajek;
+                    ht[i] = e.ht; sd[i] = e.sd_hajek; cm[i] = e.cm;
                 }
                 t_q = now_sec() - t0;
                 used_bits = s.mem_bits();
                 char buf[160];
-                snprintf(buf, sizeof buf, "w=%u;w2=%u;w3=%u;M=%llu;held=%llu;B=%.4g;compactions=%llu;E=%llu", w, w2, w3,
+                snprintf(buf, sizeof buf, "w=%u;w2=%u;w3=%u;M=%llu;held=%llu;B=%.4g;compactions=%llu;E=%llu;index_mb=%.2f", w, w2, w3,
                          (unsigned long long)M, (unsigned long long)s.size, s.Bcur, (unsigned long long)s.compactions,
-                         (unsigned long long)s.E);
+                         (unsigned long long)s.E, (double)s.index_bits() / 8e6);
                 info = buf;
             } else {
                 fprintf(stderr, "unknown spec %s\n", sp.raw.c_str());

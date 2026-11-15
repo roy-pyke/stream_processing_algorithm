@@ -478,6 +478,20 @@ struct MargCal {
                         V3[x] += var;
                     }
     }
+    // Exact count and sample weight of the pair (triple) cell addressed by predicates i, j (, l) of q.
+    inline void pair_stat(const Query& q, size_t i, size_t j, double& n, double& W) const {
+        if (q.attrs[i] > q.attrs[j]) std::swap(i, j);
+        size_t c = cell2(q.attrs[i], q.attrs[j], q.vals[i], q.vals[j]);
+        n = c2[c];
+        W = W2[c];
+    }
+    inline void triple_stat(const Query& q, size_t i, size_t j, size_t l, double& n, double& W) const {
+        size_t x[3] = {i, j, l};
+        std::sort(x, x + 3, [&](size_t a, size_t b) { return q.attrs[a] < q.attrs[b]; });
+        size_t c = cell3(q.attrs[x[0]], q.attrs[x[1]], q.attrs[x[2]], q.vals[x[0]], q.vals[x[1]], q.vals[x[2]]);
+        n = c3[c];
+        W = W3[c];
+    }
     // If a pair/triple cell addressed by the query is lighter than nb, make it the anchor.
     inline void anchor(const Query& q, uint32_t& nb, double& Wa, double& Va) const {
         size_t k = q.attrs.size();
@@ -501,6 +515,78 @@ struct MargCal {
                     }
     }
 };
+
+// =============================================================== raking the query table
+// Calibration with *all* anchors of a query instead of the lightest one. T[b], b in [0, 2^k), is
+// the sample's weight of the rows whose set of satisfied predicates is exactly b (bit i = predicate
+// i). For every subset U of at most three predicates whose cell statistics are available, the
+// number of records satisfying U is estimated by the single-anchor estimator n_c * W_U / W_c
+// (exact when the cell has no collisions); the table is then fitted to these marginals and to the
+// stream size by iterative proportional fitting (Deming-Stephan raking), and the cell "all
+// predicates hold" is returned. For k = |U| this is the single-anchor estimate; for larger k it is
+// the classical estimator of a contingency table with known lower-order marginals, whose variance
+// is governed by the smallest cell of the table rather than by the answer.
+// `single(i, n, W)` returns the exact count and sample weight of the C1 bucket of predicate i.
+template <class Single>
+static double rake_query(const Query& q, std::vector<double>& T, double N, const MargCal& mc, Single single) {
+    const size_t k = q.attrs.size(), full = ((size_t)1 << k) - 1;
+    if (T[full] <= 0) return 0.0;
+    double tot = 0;
+    for (double x : T) tot += x;
+    if (tot <= 0) return 0.0;
+    struct Con {
+        size_t mask;
+        double target;
+    };
+    std::vector<Con> cons;
+    auto mass = [&](size_t mask) {
+        double m = 0;
+        for (size_t b = 0; b <= full; b++)
+            if ((b & mask) == mask) m += T[b];
+        return m;
+    };
+    auto add = [&](size_t mask, double n, double W) {
+        if (W <= 0) return; // no sampled row in the cell: nothing known about its composition
+        double t = n * mass(mask) / W;
+        cons.push_back({mask, std::min(std::max(t, 0.0), N)});
+    };
+    for (size_t i = 0; i < k; i++) {
+        double n, W;
+        single(i, n, W);
+        add((size_t)1 << i, n, W);
+    }
+    if (mc.w2)
+        for (size_t i = 0; i + 1 < k; i++)
+            for (size_t j = i + 1; j < k; j++) {
+                double n, W;
+                mc.pair_stat(q, i, j, n, W);
+                add(((size_t)1 << i) | ((size_t)1 << j), n, W);
+            }
+    if (mc.w3)
+        for (size_t i = 0; i + 2 < k; i++)
+            for (size_t j = i + 1; j + 1 < k; j++)
+                for (size_t l = j + 1; l < k; l++) {
+                    double n, W;
+                    mc.triple_stat(q, i, j, l, n, W);
+                    add(((size_t)1 << i) | ((size_t)1 << j) | ((size_t)1 << l), n, W);
+                }
+    for (double& x : T) x *= N / tot;
+    for (int it = 0; it < 200; it++) {
+        double dev = 0;
+        for (const Con& c : cons) {
+            double in = 0;
+            for (size_t b = 0; b <= full; b++)
+                if ((b & c.mask) == c.mask) in += T[b];
+            double out = N - in;
+            if (in <= 0 || out <= 0) continue;
+            double fi = c.target / in, fo = (N - c.target) / out;
+            dev = std::max(dev, std::fabs(fi - 1));
+            for (size_t b = 0; b <= full; b++) T[b] *= ((b & c.mask) == c.mask) ? fi : fo;
+        }
+        if (dev < 1e-7) break;
+    }
+    return T[full];
+}
 
 // =============================================================== CoStrata
 // One Count-Min-style row of w exact counters per attribute defines p hash
@@ -528,6 +614,24 @@ struct CoStrata {
     MargCal mc;                                 // optional pair/triple tables (calibration only)
     // query-time working state (built by finalize)
     std::vector<double> invpi, Wb, Vb;
+    // Optional query-time index: for every attribute, the stored rows grouped by C1 bucket
+    // (CSR layout, p * (w + 1 + size) 32-bit words). A query then scans only the rows of the
+    // bucket with the fewest stored rows among those addressed by its predicates.
+    bool indexed = false;
+    std::vector<uint32_t> ix_start, ix_rows;    // p*(w+1), p*size
+    void build_index() { // after finalize()
+        ix_start.assign((size_t)p * (w + 1), 0);
+        ix_rows.resize((size_t)p * size);
+        for (uint32_t a = 0; a < p; a++) {
+            uint32_t* st = &ix_start[(size_t)a * (w + 1)];
+            for (uint64_t s = 0; s < size; s++) st[bucket_of(col[a][s], hseed[a], w) + 1]++;
+            for (uint32_t b = 0; b < w; b++) st[b + 1] += st[b];
+            std::vector<uint32_t> pos(st, st + w);
+            for (uint64_t s = 0; s < size; s++) ix_rows[(size_t)a * size + pos[bucket_of(col[a][s], hseed[a], w)]++] = (uint32_t)s;
+        }
+        indexed = true;
+    }
+    uint64_t index_bits() const { return 32ull * (ix_start.size() + ix_rows.size()); }
 
     CoStrata(uint32_t p_, uint32_t w_, uint64_t M_, double lf_, double gamma_, uint64_t seed, double slack_ = 0.1)
         : p(p_), w(w_), M(M_), lf(lf_), gamma(gamma_), slack(slack_), hseed(p_), cnt((size_t)p_ * w_, 0), col(p_), u(M_) {
@@ -631,10 +735,48 @@ struct CoStrata {
     struct Est {
         double hajek, ht, sd_hajek, sd_ht, cm; // cm = Count-Min style upper bound from the counters
     };
+    // Estimate calibrated to all anchors of the query (see rake_query).
+    double estimate_rake(const Query& q) const {
+        const size_t k = q.attrs.size();
+        if (k > 16) return estimate(q).hajek;
+        std::vector<double> T((size_t)1 << k, 0.0);
+        std::vector<const uint32_t*> cp(k);
+        for (size_t i = 0; i < k; i++) cp[i] = col[q.attrs[i]].data();
+        for (uint64_t s = 0; s < size; s++) {
+            size_t b = 0;
+            for (size_t i = 0; i < k; i++) b |= (size_t)(cp[i][s] == q.vals[i]) << i;
+            T[b] += invpi[s];
+        }
+        return rake_query(q, T, (double)N, mc, [&](size_t i, double& n, double& W) {
+            size_t b = (size_t)q.attrs[i] * w + bucket_of(q.vals[i], hseed[q.attrs[i]], w);
+            n = cnt[b];
+            W = Wb[b];
+        });
+    }
     Est estimate(const Query& q) const {
         const uint32_t* c0 = col[q.attrs[0]].data();
         uint32_t v0 = q.vals[0];
         double num = 0, A = 0;
+        if (indexed) {
+            const uint32_t *lo = nullptr, *hi = nullptr;
+            for (size_t k = 0; k < q.attrs.size(); k++) {
+                uint32_t a = q.attrs[k], b = bucket_of(q.vals[k], hseed[a], w);
+                const uint32_t* st = &ix_start[(size_t)a * (w + 1)];
+                const uint32_t* base = &ix_rows[(size_t)a * size];
+                if (!lo || st[b + 1] - st[b] < (uint32_t)(hi - lo)) lo = base + st[b], hi = base + st[b + 1];
+            }
+            for (const uint32_t* it = lo; it != hi; ++it) {
+                uint32_t s = *it;
+                bool ok = true;
+                for (size_t k = 0; k < q.attrs.size(); k++)
+                    if (col[q.attrs[k]][s] != q.vals[k]) { ok = false; break; }
+                if (ok) {
+                    double ip = invpi[s];
+                    num += ip;
+                    A += ip * ip - ip;
+                }
+            }
+        } else
         for (uint64_t s = 0; s < size; s++) {
             if (c0[s] != v0) continue;
             bool ok = true;

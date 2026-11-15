@@ -19,7 +19,7 @@ Q=results/time/query.log
 : > "$Q"
 for ds in taxi mawi; do
   for mem in 1 10 50; do
-    taskset -c 0 ./bin/bench acc data/$ds.bin work/$ds.wl /dev/null $ds $mem 1 res uss omnijs omnip omniv omni:256:2 omni:1024:2 cs:0:1e9:1:0.25 cs cs:0:1:1:0.25 csh:0:1:0.25 >> "$Q"
+    taskset -c 0 ./bin/bench acc data/$ds.bin work/$ds.wl /dev/null $ds $mem 1 res uss omnijs omnip omniv omni:256:2 omni:1024:2 cs:0:1e9:1:0.25 cs:0:1e9:1:0.25:0:0:1 cs cs:0:1:1:0.25 csh:0:1:0.25 >> "$Q"
   done
 done
 echo "timing done"

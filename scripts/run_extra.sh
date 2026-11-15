@@ -10,7 +10,7 @@ mkdir -p results/abl results/census
 # ---------------------------------------------------------------- ablations
 #   house weight, allocation exponent, buckets per attribute (CoStrata with C1, as designed)
 #   budget fraction of the pair tables (uniform sample) and of pair + triple tables
-ABL="cs:64:1:1 cs:256:1:1 cs:1024:1:1 cs:4096:1:1 cs:16384:1:1 cs:0:0:1 cs:0:0.25:1 cs:0:1:1 cs:0:4:1 cs:0:1e9:1 cs:0:0:0.5 cs:0:0:0.75 cs:0:1e9:1:0.05 cs:0:1e9:1:0.1 cs:0:1e9:1:0.25 cs:0:1e9:1:0.5 cs:0:1e9:1:0.1:0.1 cs:0:1e9:1:0.15:0.15 cs:0:1e9:1:0.2:0.3 cs:0:1:1:0.25 cs:0:0.25:1:0.25 res"
+ABL="cs:64:1:1 cs:256:1:1 cs:1024:1:1 cs:4096:1:1 cs:16384:1:1 cs:0:0:1 cs:0:0.25:1 cs:0:1:1 cs:0:4:1 cs:0:1e9:1 cs:0:0:0.5 cs:0:0:0.75 cs:0:1e9:1:0.05 cs:0:1e9:1:0.1 cs:0:1e9:1:0.25 cs:0:1e9:1:0.5 cs:0:1e9:1:0.1:0.1 cs:0:1e9:1:0.15:0.15 cs:0:1e9:1:0.2:0.3 cs:0:1:1:0.25 cs:0:0.25:1:0.25 cs:0:1e9:1:0.25:0:1 cs:0:1e9:1:0.15:0.15:1 csh:0:0.25:0.25 csh:0:1:0.25 csh:0:4:0.25 csh uss ussc ussc:0:0.25 res"
 NA=$(echo $ABL | wc -w)
 run_abl() {
   ds=$1; mem=$2; seed=$3; shift 3
@@ -25,7 +25,7 @@ for ds in taxi mawi zipf15_5M; do for mem in 1 10; do for seed in 1 2 3 4 5; do 
   xargs -P "$J" -L 1 bash -c 'run_abl $0 $1 $2 '"$ABL"
 
 # ---------------------------------------------------------------- attribute scaling on census (p = 4..68)
-CEN="res uss omnijs omnip omni:64:2 omni:256:2 omni:1024:2 cs:0:1e9 cs:0:1e9:1:0.25 cs cs:0:1:1:0.25 ussc:0:0.25"
+CEN="res uss omnijs omnip omni:64:2 omni:256:2 omni:1024:2 cs:0:1e9 cs:0:1e9:1:0.25 cs cs:0:1:1:0.25 ussc:0:0.25 csh:0:1:0.25"
 NC=$(echo $CEN | wc -w)
 run_cen() {
   p=$1; seed=$2; shift 2

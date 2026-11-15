@@ -20,8 +20,8 @@
 \newcommand{\nstar}{n^{\star}}
 \input{numbers}
 
-\title{Row Samples versus Sketch-in-Sketch for Ad-hoc Predicate Counting on Streams:\\
-An Anatomy and Experimental Study of OmniSketch}
+\title{Counters for Marginals, Rows for the Rest:\\
+Calibrated Row Samples versus Sketch-in-Sketch\\ for Ad-hoc Predicate Counting on Streams}
 \author{Author Name(s)\thanks{Placeholder --- to be filled in by the authors.}}
 \date{}
 
@@ -29,35 +29,36 @@ An Anatomy and Experimental Study of OmniSketch}
 \maketitle
 
 \begin{abstract}
-Composite (``sketch-in-sketch'') synopses are a prominent recent direction in streaming analytics.
-Its flagship for multi-attribute streams, \omni, answers \textsc{count} queries with conjunctive
-predicates chosen at query time: every cell of one Count-Min sketch per attribute stores a min-wise
-sample of record identifiers, and a query intersects the samples of the cells it addresses. We study
-how this design compares with keeping a sample of rows.
-\emph{(i)~Reproduction.} We run the authors' Java implementation and build a bit-exact C++ port of it;
-on \NumValQueries{} queries over \NumValStreams{} streams the two return identical integers. Reading and
-running the code shows that the estimator it returns (the bound of the paper's main theorem) is not the
-one behind the published error plots, that its hash functions map runs of about 1\,400 consecutive
-values to one cell, and that the published accuracy levels are reproduced by the always-scaled estimator.
-\emph{(ii)~Anatomy.} For the paper's default target $\epsilon=\delta=0.1$, a uniform sample of 150 rows
-(a few kilobytes) gives the additive $\epsilon N$ guarantee for \emph{every} predicate, whereas the
-sketch needs more than 5\,MB before its guarantee can apply to any query. The intersection of the
-per-cell samples is a uniform sample at the rate of the \emph{heaviest} cell touched, and the collision
-bias of the prescribed parameterisation does not decrease with memory.
-\emph{(iii)~Experiments.} At equal memory, on six streams and seven budgets, a plain row reservoir has
-a \NumJavaVsResLo--\NumJavaVsResHi$\times$ lower error than the authors' code (geometric mean
-\NumJavaVsResGm$\times$) and, on all non-uniform streams, a \NumOmniAnyVsResLo--\NumOmniAnyVsResHi$\times$
-lower error than the best of \NumOmniFamilySize{} \omni variants under an oracle memory accounting.
-The sampling baseline of the journal version loses to \omni in its authors' experiments; in our
-insert-only runs it does not, even under that version's own accounting, which charges it
-$32p{+}384$ bits per sampled record.
-\emph{(iv)~What to use instead.} Exact counters are cheap, so we calibrate row samples to hashed one-,
-two- and three-dimensional marginals: this lowers the error of the reservoir by another
-\NumCalTwoVsResLo--\NumCalTwoVsResHi$\times$ (geometric mean \NumCalTwoVsResGm$\times$) with pair tables,
-most of it on two-predicate queries. Coordinated hash stratification (\cs) adds one to two orders of
-magnitude on queries anchored on rare values of low-cardinality attributes and is neutral elsewhere; a
-sample-and-hold variant recovers most of the advantage of tuple-aggregating sketches when records
-repeat. \omni retains a lower query latency.
+Counting the records of a multi-attribute stream that satisfy a conjunction of predicates chosen at
+query time is the streaming counterpart of selectivity estimation. The state of the art,
+\omni, is a composite (``sketch-in-sketch'') synopsis: every cell of one Count-Min sketch per attribute
+stores a min-wise sample of record identifiers, and a query intersects the samples of the cells it
+addresses. We show that this design is dominated by samples of rows, explain why, and derive from the
+explanation a synopsis that is one to two orders of magnitude more accurate at equal memory.
+\emph{Why sketch-in-sketch loses.} The intersection of per-cell samples is a uniform sample at the
+rate of the \emph{heaviest} cell a query touches, every sampled record is paid for once per attribute
+and sketch row, and the collision error of the prescribed parameterisation does not decrease with
+memory; the $\epsilon N$ guarantee from which the sketch is dimensioned is one that 150 sampled rows
+provide for any predicate. We verify this against the authors' Java implementation, which we run
+unmodified and port bit-exactly to C++ (identical results on \NumValQueries{} queries); the exercise
+also shows that the estimator returned by that code is not the one behind the published plots and that
+its hash functions map runs of about 1\,400 consecutive values to one cell. At equal memory a plain row
+reservoir has a \NumJavaVsResTenLo--\NumJavaVsResTenHi$\times$ lower error than the authors' code at the
+budgets of the original study and, on all non-uniform streams, a
+\NumOmniAnyVsResLo--\NumOmniAnyVsResHi$\times$ lower error than the best of \NumOmniFamilySize{} \omni
+variants under an oracle memory accounting.
+\emph{What to do instead.} A counter costs 32 bits and a sampled row hundreds, so we keep
+\emph{exact counters for hashed low-order marginals} and \emph{rows for everything else}, and
+calibrate the sample to the counters with a ratio estimator. With pair tables the variance of a
+two-predicate count drops from $f/\rho$ to at most $\min(f,N/w_2)/\rho$, and the error of the
+reservoir on the original workload falls by a further \NumCalTwoVsResLo--\NumCalTwoVsResHi$\times$
+(geometric mean \NumCalTwoVsResGm$\times$). Calibration is orthogonal to how rows are chosen; we combine
+it with a coordinated hash-stratified sampler whose thresholds are driven by the same counters---provably
+unbiased under a hard memory budget and within $\sqrt2$ of uniform sampling in standard error---which
+adds one to two orders of magnitude on queries anchored on rare values of low-cardinality attributes,
+and with sample-and-hold counting for streams with repeated records. The combination of the three,
+\csh, is \NumOmniAnyVsCshLo--\NumOmniAnyVsCshHi$\times$ more accurate than the best \omni variant on the
+non-uniform streams and ingests \NumTpCshLo--\NumTpCshHi{} million records per second on one laptop core.
 \end{abstract}
 
 \section{Introduction}
@@ -89,52 +90,56 @@ reproducibility question, and answer it with the authors' code in the loop.
 
 \paragraph{Contributions.}
 \begin{enumerate}
-\item \textbf{Reproduction with the authors' code (Sections~\ref{sec:refimpl} and~\ref{sec:validation}).}
-We run the public Java implementation of \omni unmodified, driven by a small harness that feeds it our
-streams and queries, and we port it to C++ bit by bit, including its hash functions built from
-\texttt{java.util.Random}. On \NumValQueries{} queries (\NumValRuns{} runs, \NumValStreams{} streams, four
-budgets) the Java code and the port return the same intersection sizes and the same estimates, so that
-the port can stand in for the original in all further experiments. On streams from the authors' own
-generator the code reproduces the error levels of the published sensitivity figure. The exercise
-uncovers three things that the paper does not state: the value returned by the implementation is the
-bound of Theorem~3.3 for essentially every multi-predicate query, with errors between
-$\NumJavaThmNaeLo$ and $\NumJavaThmNaeHi$ times the stream size, while the published plots are
-computed from a second, always-scaled estimate that the code logs; the cell hash maps runs of about
-1\,400 consecutive attribute values to a single cell of the first sketch row; and record-identifier
-hashes are truncated to 20--31 bits.
+\item \textbf{An anatomy of sketch-in-sketch for ad-hoc predicates (Section~\ref{sec:anatomy}).}
+A uniform row sample of $\lceil\ln(2/\delta)/(2\epsilon^2)\rceil$ rows---150 rows for the default
+$\epsilon=\delta=0.1$---has additive error $\epsilon N$ with probability $1-\delta$ for an arbitrary
+predicate, independently of $N$ and of the attribute domains, whereas the precondition of \omni's
+guarantee needs per-cell samples of about 2\,800 hashes, i.e., more than 5\,MB for five attributes.
+Structurally, because all cells use the same hash function on record identifiers, the intersection of
+the per-cell samples is a uniform sample of the matching records whose rate is that of the
+\emph{heaviest} cell involved; a row reservoir of the same size has a higher rate unless \emph{every}
+cell touched by the query holds less than about a $1/d$ fraction of the average cell load. The
+prescribed parameterisation derives the sketch width from the accuracy target alone, so the one-sided
+hash-collision error does not decrease with memory.
 
-\item \textbf{An anatomy (Section~\ref{sec:anatomy}).} A uniform row sample of
-$\lceil\ln(2/\delta)/(2\epsilon^2)\rceil$ rows---150 rows for the default $\epsilon=\delta=0.1$---has
-additive error $\epsilon N$ with probability $1-\delta$ for an arbitrary predicate, independently of $N$
-and of the attribute domains, whereas the precondition of \omni's guarantee needs per-cell samples of
-about 2\,800 hashes, i.e., more than 5\,MB for five attributes. Structurally, because all cells use the
-same hash function on record identifiers, the intersection of the per-cell samples is a uniform sample of
-the matching records whose rate is that of the \emph{heaviest} cell involved; a row reservoir of the
-same size has a higher rate unless \emph{every} cell touched by the query holds less than about a $1/d$
-fraction of the average cell load. The prescribed parameterisation derives the sketch width from the
-accuracy target alone, so the one-sided hash-collision error does not decrease with memory.
+\item \textbf{A reproduction with the authors' code (Sections~\ref{sec:refimpl}
+and~\ref{sec:validation}).} We run the public Java implementation of \omni unmodified, driven by a
+small harness that feeds it our streams and queries, and we port it to C++ bit by bit, including its
+hash functions built from \texttt{java.util.Random}. On \NumValQueries{} queries (\NumValRuns{} runs,
+\NumValStreams{} streams, four budgets) the Java code and the port return the same intersection sizes
+and the same estimates, so that the port can stand in for the original in all further experiments. On
+streams from the authors' own generator the code reproduces the error levels of the published
+sensitivity figure. The exercise uncovers three things that the paper does not state: the value
+returned by the implementation is the bound of Theorem~3.3 for essentially every multi-predicate
+query, with errors between $\NumJavaThmNaeLo$ and $\NumJavaThmNaeHi$ times the stream size, while the
+published plots are computed from a second, always-scaled estimate that the code logs; the cell hash
+maps runs of about 1\,400 consecutive attribute values to a single cell of the first sketch row; and
+record-identifier hashes are truncated to 20--31 bits. We also trace the journal version's conclusion
+that \omni outperforms sampling to its memory accounting for the sampling baseline and to the mix of
+its workload (Section~\ref{sec:journal}).
+
+\item \textbf{Calibrated row samples (Section~\ref{sec:methods}).} The anatomy suggests a division of
+labour: \emph{counters} for low-order marginals, \emph{rows} for everything else. We maintain exact
+counters of hashed one-, two- and optionally three-dimensional marginals---a truncated Hydra whose
+update cost is polynomial in $p$---and calibrate sample-based estimates to the lightest cell a query
+addresses. We prove that this multiplies the variance by $1-f/n_c$, that pair tables bound the variance
+of a two-predicate count by $\min(f,N/w_2)/\rho$ independently of the answer $f$, and that giving a
+quarter of the memory to the tables is within a factor $2/\sqrt3$ of the best standard error both for
+the queries that calibration helps and for those it cannot help. Calibration is orthogonal to how the
+rows are chosen. \cs chooses them by coordinated hash stratification with counter-driven
+thresholds---a row is kept if \emph{any} of its strata would keep it---under a single-parameter hard
+memory budget; we prove unbiasedness under budget control, a $\sqrt2$ bound on the loss in standard
+error against uniform sampling, and exactness for conjunctions containing a sufficiently rare value. A
+sample-and-hold mode counts repeated records exactly once they are sampled.
 
 \item \textbf{An experimental study at equal memory (Sections~\ref{sec:setup}--\ref{sec:results}).}
-We compare the authors' implementation, our optimised re-implementation with the same parameters, the
-configuration of the journal version's code, and a search over further configurations under an oracle
-memory accounting, with row sampling and with the journal version's sampling baseline, on four
-synthetic and two real streams (and a 68-attribute stream for scaling). A plain reservoir is more
-accurate than every \omni variant on every non-uniform stream and budget; the gap to the authors' code
-is \NumJavaVsResLo--\NumJavaVsResHi$\times$ (geometric mean \NumJavaVsResGm$\times$). We also examine
-why the journal version reaches the opposite conclusion about sampling.
-
-\item \textbf{Calibrated row samples (Section~\ref{sec:methods}).} Since a counter is cheap and a
-sampled row is expensive, the natural division of labour is to keep \emph{counters} for low-order
-marginals and \emph{rows} for everything else. We calibrate sample-based estimates to exact counts of
-hashed one-, two- and three-dimensional marginals with a ratio estimator. With pair tables the variance
-of a two-predicate estimate drops from $f/\rho$ to about $N/(w_2\rho)$, independent of the answer $f$,
-and the error of the reservoir on the original workload falls by a further
-\NumCalTwoVsResLo--\NumCalTwoVsResHi$\times$. Calibration is orthogonal to how the sample is drawn. We
-combine it with \cs, a coordinated hash-stratified row sample with counter-driven thresholds that is
-provably unbiased under hard budget control and at most a factor $\sqrt2$ worse in standard error than
-uniform sampling, and with a sample-and-hold variant for streams with repeated records. Stratification
-pays off in one regime only---conjunctions anchored on rare values of low- and medium-cardinality
-attributes---and we report it as such.
+On four synthetic and \NumRealStreams{} real streams (and a 68-attribute stream for scaling) we compare
+the authors' implementation, our optimised re-implementation with the same parameters, the
+configuration of the journal version's code and a configuration search under an oracle memory
+accounting with row sampling, tuple-aggregating sketches and the journal version's sampling baseline.
+A plain reservoir is more accurate than every \omni variant on every non-uniform stream and budget;
+calibration, stratification and aggregation each add a factor in a clearly delimited regime, which we
+separate by ablation. We report negative results for our own methods as well.
 \end{enumerate}
 
 \paragraph{What we do not claim.} Our streams are not those of the original evaluation: the SNMP and
@@ -394,13 +399,32 @@ $y_r=[r\in q]$~\cite{sarndal}; the sum equals $f(1-R)^2+(n_{c^\star}-f)R^2=f(1-R
 \end{proof}
 The gain is the factor $1-R$: calibration helps to the extent that the query fills its anchor cell. With
 one-dimensional anchors this is the case for single-predicate queries and for strongly correlated
-attributes, but not for a conjunction of two independent frequent values. A pair table changes this: under
-a random hash the cell of the pair $(v_a,v_b)$ receives $f$ plus about $(N-f)/w_2$ colliding records, so
-$1-R\approx 1/(1+f\,w_2/N)$ and the variance of a two-predicate query is at most about
-$N/(w_2\,\rho)$---independent of $f$, where the HT variance $f/\rho$ grows with $f$. Frequent
-conjunctions, which dominate absolute-error metrics, are thus answered almost from the counters alone,
-and the sample is left with what counters cannot do. For $k\ge3$ predicates the anchor is the lightest
-pair (or triple) cell and the gain is again $1-R$.
+attributes, but not for a conjunction of two independent frequent values. A pair table changes this.
+
+\begin{proposition}[Pair tables]\label{prop:pair}
+Let $q$ be a two-predicate query on attributes $a<b$ and let the table of $(a,b)$ use a pairwise
+independent hash function into $w_2$ cells. In expectation over that hash function, the linearised
+variance of~\eqref{eq:cal} with the pair cell as anchor is at most
+$\bigl(\tfrac1\rho-1\bigr)\min\bigl\{f(q),\,(N-f(q))/w_2\bigr\}$.
+\end{proposition}
+\begin{proof}
+Let $X=n_{c}-f$ be the number of records with a different value pair that collide with the query's
+pair. By Proposition~\ref{prop:calvar} the variance is $(1/\rho-1)\,fX/(f+X)\le(1/\rho-1)\min(f,X)$,
+which is concave in $X$, and $\E X=(N-f)/w_2$; apply Jensen's inequality.
+\end{proof}
+The variance of a two-predicate count is thus bounded by about $N/(w_2\rho)$ \emph{independently of
+$f$}, where the HT variance $f/\rho$ grows with $f$. Frequent conjunctions, which dominate
+absolute-error metrics, are answered almost from the counters alone, and the sample is left with what
+counters cannot do: conjunctions that are rare, or of higher order than the tables. For $k\ge3$
+predicates the anchor is the lightest pair (or triple) cell and the gain is again $1-R$; it fades as
+$k$ grows beyond the order of the tables.
+
+\paragraph{How much memory for counters?} Let a fraction $\phi$ of the budget go to the pair tables,
+so that $w_2\propto\phi$ and $\rho\propto1-\phi$. For queries that calibration cannot help, the
+standard error grows by the factor $(1-\phi)^{-1/2}$. For frequent two-predicate queries the bound of
+Proposition~\ref{prop:pair} is proportional to $1/(\phi(1-\phi))$ and is minimised at $\phi=1/2$. The
+choice $\phi=1/4$ balances the two: it is within a factor $2/\sqrt3\approx1.15$ of the best achievable
+standard error for \emph{both} classes at once, and it is our default.
 
 \paragraph{Cost and sizing.} The tables take a fixed fraction $\phi$ of the memory budget (default: pair
 tables with $\phi_2=0.25$, no triple tables; C1 rows take at most 5\%); the table width is the largest
