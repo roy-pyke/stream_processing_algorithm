@@ -68,6 +68,9 @@ traces of the original evaluation are not included.
 ```bash
 scripts/validate_omni_java.sh 4 && python scripts/validate_omni_java.py   # Java code vs. C++ port, query by query
 scripts/run_accuracy.sh 8        # accuracy matrix (5 seeds)
+DATASETS=dmv MEMS="1 10 50" SEEDS="1 2 3" scripts/run_accuracy.sh 2          # DMV (large): 3 budgets, 3 seeds
+OUT=results/acc3 METHODS="ussc:0:0.15:0.15 csh:0:1:0.15:0.15" scripts/run_accuracy.sh 8   # triple-table variants
+OUT=results/acc3 METHODS="ussc:0:0.15:0.15 csh:0:1:0.15:0.15" DATASETS=dmv MEMS="1 10 50" SEEDS="1 2 3" scripts/run_accuracy.sh 4
 scripts/run_journal_setting.sh 3 # journal-version setting (9 attributes, their baselines and accounting)
 scripts/run_hydra.sh 2           # the authors' Hydra adaptation on the 5-attribute streams
 scripts/run_extra.sh 4           # ablations, attribute scaling
@@ -75,6 +78,7 @@ scripts/run_bias.sh 8 && python scripts/bias_check.py ; scripts/run_bias_probe.s
 scripts/run_timing.sh            # update throughput / query latency (idle machine)
 
 python scripts/aggregate.py results/acc     results/agg_acc.csv     work
+python scripts/aggregate.py results/acc3    results/agg_acc3.csv    work
 python scripts/aggregate.py results/journal results/agg_journal.csv work
 python scripts/aggregate.py results/abl     results/agg_abl.csv     work
 python scripts/aggregate.py results/census  results/agg_census.csv  work

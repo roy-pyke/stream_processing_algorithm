@@ -12,6 +12,7 @@ work/
 
 # raw per-run experiment logs (large; aggregated CSVs are tracked)
 results/acc/
+results/acc3/
 results/abl/
 results/census/
 results/journal/

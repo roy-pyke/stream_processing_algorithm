@@ -115,11 +115,15 @@ an update cost linear in $p$. The calibrated samples of Section~\ref{sec:cal} ge
 polynomial cost: the error of Hydra relative to \textsc{RS+C2} is
 \NumHydraVsCalTwoLo--\NumHydraVsCalTwoHi{} (geometric mean \NumHydraVsCalTwoGm; values above 1 favour the
 calibrated sample) and relative to \textsc{RS+C3} \NumHydraVsCalThreeLo--\NumHydraVsCalThreeHi{}
-(\NumHydraVsCalThreeGm). The calibrated samples are ahead at small and medium budgets and Hydra at the
-largest ones, where every one of its 31 subpopulation sketches has become accurate. Hydra processes
-\NumTpHydraIdle{} million records per second (Zipf with $\alpha=1.3$, 10\,MB, idle machine), about two
-orders of magnitude less than the calibrated samples, and its cost doubles with every attribute; we
-could not run it on the real streams.
+(\NumHydraVsCalThreeGm): the calibrated uniform samples are ahead at small and medium budgets and Hydra
+at the largest ones, where every one of its 31 subpopulation sketches has become accurate. With tuple
+aggregation the calibrated sample is ahead throughout: the error of Hydra is
+\NumHydraVsUssCalThreeLo--\NumHydraVsUssCalThreeHi{} times that of \textsc{USS+C3} on the Zipf streams at
+every budget from 1 to 50\,MB (geometric mean \NumHydraVsUssCalThreeGm). Hydra processes
+\NumTpHydraIdle{} million records per second (Zipf with $\alpha=1.3$, 10\,MB), compared with
+\NumTpZipfCalTwo{} for \textsc{RS+C2}, \NumTpZipfCalThree{} for \textsc{RS+C3} and
+\NumTpZipfUssCalThree{} for \textsc{USS+C3} on the same stream, and its cost doubles with every
+attribute; we could not run it on the real streams.
 
 \subsection{The journal version's sampling baseline}\label{sec:journal}
 
@@ -139,7 +143,11 @@ queries (mean of 3 seeds). ``Journal acct.'': memory accounting of that version'
 \input{tables/journal_metric}
 \end{table}
 
-The journal version~\cite{omni-vldbj} reports that \omni outperforms adaptive Sample-and-Hold (aSH).
+% NOTE(authors): the statement "outperforms ... adaptive Sampling and Hold" is taken from the authors'
+% DBDBD 2025 abstract of the journal version; check the figures and metrics of the journal article itself
+% (doi:10.1007/s00778-025-00960-6) before submission and adjust this subsection if they differ.
+The authors of the journal version~\cite{omni-vldbj} report that \omni outperforms adaptive
+Sample-and-Hold (aSH).
 We cannot rerun its bounded-deletion experiments within our scope, but its code, configuration files
 and query generator allow us to examine the insert-only case, and they explain much of the difference to
 our findings.
@@ -164,7 +172,7 @@ every $k=1,\dots,p$. On a stream with nine attributes most of these queries matc
 queries the choice of metric decides the winner. Under Bernoulli sampling at rate $\rho$, an unbiased
 estimate of a count $f=1$ is $1/\rho$ with probability $\rho$ and $0$ otherwise, so its expected
 \emph{relative} error is $2(1-\rho)\approx2$, whereas an estimator that simply returns $0$ has relative
-error $1$. Table~\ref{tab:journalk} shows exactly this. For $k\le4$, where answers are in the tens to
+error $1$. Table~\ref{tab:journalk} shows exactly this. For $k\le4$, where answers are in the hundreds to
 hundred thousands, aSH under the journal accounting has a \NumJKAshAbsLo--\NumJKAshAbsHi$\times$ lower
 absolute error than \omni and the reservoir a \NumJKResAbsLo--\NumJKResAbsHi$\times$ lower one. For
 $k\ge6$ all methods are off by one or two records; \omni, whose intersections are empty for
@@ -222,7 +230,7 @@ pair-level Count-Min estimate) is \NumCmVsCalTwoLo--\NumCmVsCalTwoHi$\times$ les
 \includegraphics[width=\textwidth]{figs/anchor.pdf}
 \caption{Mean relative error of anchored queries, grouped by the frequency decade of the rarest
 predicate (mean of 5 seeds). Values near 1 mean that the synopsis has essentially no information about
-the query.}
+the query; errors below $2\cdot10^{-3}$ are drawn at that level.}
 \label{fig:anchor}
 \end{figure}
 
@@ -302,25 +310,31 @@ weights for the row samples).}
 Table~\ref{tab:speed} reports single-core performance. The reservoir is in a class of its own
 (\NumTpResLo--\NumTpResHi{} million records/s) because skip counting touches only sampled records.
 With C1 counters only, a uniform or stratified sample ingests \NumTpCalOneLo--\NumTpCalOneHi{} million
-records/s; the pair tables cost a factor \NumTpPairCostLo--\NumTpPairCostHi{} ($\binom p2=66$ and $45$
-increments per record on Taxi and MAWI), giving \NumTpCalTwoLo--\NumTpCalTwoHi{} million records/s for
-\textsc{RS+C2} and \NumTpCshLo--\NumTpCshHi{} for \csh; triple tables cost another factor
-\NumTpTripleCostLo--\NumTpTripleCostHi. Our optimised \omni reaches
+records/s, \NumTpCsOneVsOmniLo--\NumTpCsOneVsOmniHi$\times$ the throughput of the fastest \omni variant of
+the table. The pair tables cost a factor \NumTpPairCostLo--\NumTpPairCostHi{} ($\binom p2=66$ and $45$
+increments per record on Taxi and MAWI): \textsc{RS+C2} and \cs ingest
+\NumTpCalTwoLo--\NumTpCalTwoHi{} million records/s, which is
+\NumTpCalTwoVsOmniLo--\NumTpCalTwoVsOmniHi{} times the throughput of the fastest \omni variant---slower at
+1\,MB, where \omni's per-cell samples are tiny, and on par or faster at 50\,MB. \csh reaches
+\NumTpCshLo--\NumTpCshHi{} million records/s, and triple tables cost another factor
+\NumTpTripleCostLo--\NumTpTripleCostHi{} (\NumTpCalThreeLo--\NumTpCalThreeHi{} million records/s for
+\textsc{RS+C3}, \NumTpUssCalThreeLo--\NumTpUssCalThreeHi{} for \textsc{USS+C3}). Accuracy per unit of update cost is therefore a three-way trade-off between C1, C2 and
+C3 that the application has to settle. Our optimised \omni reaches
 \NumTpOmniPaperLo--\NumTpOmniPaperHi{} million records/s with the authors' parameters,
-\NumTpOursVsJavaLo--\NumTpOursVsJavaHi$\times$ the throughput of the port of their tree-based
+\NumTpOursVsJavaLo--\NumTpOursVsJavaHi{} times the throughput of the C++ port of their tree-based
 implementation (the original Java implementation is reported at 0.09--0.2 million records/s on different
-hardware~\cite{omni}), so our accuracy comparison is not against a slow strawman. \textsc{RS+C2} is
-\NumTpCalTwoVsOmniLo--\NumTpCalTwoVsOmniHi$\times$ as fast as the fastest \omni variant of
-Table~\ref{tab:speed}.
+hardware~\cite{omni}), so our accuracy comparison is not against a slow strawman.
 
-Query latency is the one dimension in which \omni is ahead: it merges $|Q|\,d$ sorted lists of at most
-$B$ hashes (\NumQlatOmniLo--\NumQlatOmniHi\,$\mu$s per query), whereas a row sample scans the first
-predicate's column over the whole sample (\NumQlatCalTwoLo--\NumQlatCalTwoHi\,$\mu$s for
-\textsc{RS+C2}). A query-time index that groups the stored rows by C1 bucket, so that a query scans
-only the rows of its lightest bucket, reduces this to \NumQlatIndexLo--\NumQlatIndexHi\,$\mu$s
-(\NumQlatIndexVsOmniLo--\NumQlatIndexVsOmniHi$\times$ the latency of the fastest \omni variant) without
-changing any estimate; it costs $32p$ bits per stored row of additional memory at query time and is
-not included in the accuracy budgets.
+Query latency is the dimension in which \omni is ahead: our implementation merges $|Q|\,d$ sorted lists
+of at most $B$ hashes (\NumQlatOmniLo--\NumQlatOmniHi\,$\mu$s per query over its variants), whereas a
+row sample scans the first predicate's column over the whole sample
+(\NumQlatCalTwoLo--\NumQlatCalTwoHi\,$\mu$s for \textsc{RS+C2},
+\NumQlatCalTwoVsOmniLo--\NumQlatCalTwoVsOmniHi$\times$ the latency of the fastest \omni variant). A
+query-time index that groups the stored rows by C1 bucket, so that a query scans only the rows of its
+lightest bucket, reduces this to \NumQlatIndexLo--\NumQlatIndexHi\,$\mu$s
+(\NumQlatIndexVsOmniLo--\NumQlatIndexVsOmniHi$\times$ the fastest \omni variant) without changing any
+estimate; it costs $32p$ bits per stored row of additional memory at query time and is not included in
+the accuracy budgets.
 
 \subsection{Scaling the number of attributes}\label{sec:census}
 

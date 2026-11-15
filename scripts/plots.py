@@ -93,6 +93,8 @@ def fmt_sci(x):
     if x == 0:
         return "0"
     e = int(np.floor(np.log10(x)))
+    if round(x / 10 ** e, 1) >= 10:
+        e += 1
     return f"{x / 10 ** e:.1f}e{e}"
 
 
@@ -121,6 +123,8 @@ def tex_label(key):
 
 # ====================================================================== main accuracy matrix
 acc = pd.read_csv("results/agg_acc.csv")
+if os.path.exists("results/agg_acc3.csv"):   # triple-table variants of USS and CoStrata-H (run separately)
+    acc = pd.concat([acc, pd.read_csv("results/agg_acc3.csv")], ignore_index=True)
 if os.path.exists("results/agg_hydra.csv"):
     hy = pd.read_csv("results/agg_hydra.csv")
     acc = pd.concat([acc, hy[hy.dataset.isin(set(acc.dataset))]], ignore_index=True)
@@ -139,7 +143,7 @@ NUM["OmniFamilySize"] = str(len(OMNI_FAMILY))
 NUM["RealStreams"] = {1: "one", 2: "two", 3: "three"}[len(REAL)]
 
 # ---------------------------------------------------------------- Fig: NAE vs memory
-order = ["omnijs", "omnibest", "hydra", "res", RSC2, USSC2, CS2, CSH]
+order = ["omnijs", "omnibest", "hydra", "res", RSC2, USSC3, CSH]
 ncol_ = 4 if len(DATASETS) > 6 else 3
 fig, axes = plt.subplots(2, ncol_, figsize=(7.0 if ncol_ == 3 else 8.6, 4.1), sharex=True)
 for ax in axes.flat[len(DATASETS):]:
@@ -157,23 +161,28 @@ for ax in axes[-1]:
     ax.set_xlabel("memory (MB)")
 for ax in axes[:, 0]:
     ax.set_ylabel("normalized abs. error")
-h, l = axes[0, 0].get_legend_handles_labels()
-fig.legend(h, l, loc="upper center", ncol=4, frameon=False, bbox_to_anchor=(0.5, 1.07))
+hs_, ls__ = [], []
+for ax in axes.flat:                     # Hydra exists only in the synthetic panels
+    for h_, l_ in zip(*ax.get_legend_handles_labels()):
+        if l_ not in ls__:
+            hs_.append(h_); ls__.append(l_)
 fig.tight_layout()
+fig.legend(hs_, ls__, loc="upper center", ncol=4, frameon=False, bbox_to_anchor=(0.5, 1.1))
 fig.savefig("paper/figs/nae_vs_mem.pdf", bbox_inches="tight")
 plt.close(fig)
 
 # ---------------------------------------------------------------- Fig: relative error by anchor frequency
 order2 = ["omnibest", "res", RSC2, USSC2, CS1, CS2, CSH]
-panels = [("taxi", 1.0), ("taxi", 10.0), ("mawi", 10.0), ("zipf15_5M", 10.0)]
+panels = [("taxi", 10.0), ("taxi", 20.0), ("mawi", 10.0), ("zipf15_5M", 10.0)]
+FLOOR = 2e-3   # smaller errors (essentially exact answers) are drawn at the floor
 fig, axes = plt.subplots(1, 4, figsize=(7.0, 2.25), sharey=True)
 xl = [r"$10^1$", r"$10^2$", r"$10^3$", r"$10^4$", r"$10^5$", r"$10^6$"]
 for ax, (ds, mem) in zip(axes, panels):
     for key in order2:
         s = m[(m.dataset == ds) & (m.method == key) & (m.mem == mem)]
         if len(s):
-            line(ax, np.arange(6), s[dcols].to_numpy(float)[0], key)
-    ax.set_yscale("log"); ax.grid(True, which="major")
+            line(ax, np.arange(6), np.maximum(s[dcols].to_numpy(float)[0], FLOOR), key)
+    ax.set_yscale("log"); ax.grid(True, which="major"); ax.set_ylim(FLOOR * 0.8, 4)
     ax.set_xticks(np.arange(6)); ax.set_xticklabels(xl)
     ax.set_title(f"{DS_LABEL[ds]}, {mem:g} MB"); ax.minorticks_off()
 fig.supxlabel("frequency of the query's rarest predicate (decade)", fontsize=8, y=0.04)
@@ -471,9 +480,9 @@ if os.path.exists("results/time/time.log"):
                 f_ = ln.strip().split(",")
                 qrows.append(dict(dataset=f_[1], method=f_[2], mem=float(f_[3]), q_us=float(f_[9])))
     q = pd.DataFrame(qrows)
-    tm = ["res", "uss", RSC1, RSC2, RSC3, CS1, CS2, CSH, USSC2, "ash", "omnij", "omnip", "omniv", "omnil", "omni:256:2", "omni:1024:2"]
+    tm = ["res", "uss", RSC1, RSC2, RSC3, CS1, CS2, CSH, CSH3, USSC2, USSC3, "ash", "omnij", "omnip", "omniv", "omnil", "omni:256:2", "omni:1024:2"]
     names = {"res": "RS", "uss": "USS", RSC1: "RS+C1", RSC2: "RS+C2", RSC3: "RS+C3", CS1: "CoStrata (C1)", CS2: "CoStrata",
-             CSH: "CoStrata-H", USSC2: "USS+C2", "ash": "aSH", "omnij": "OmniSketch (port of authors' code)", "omnijs": "OmniSketch (port of authors' code)",
+             CSH: "CoStrata-H", CSH3: "CoStrata-H (C3)", USSC2: "USS+C2", USSC3: "USS+C3", "ash": "aSH", "omnij": "OmniSketch (port of authors' code)", "omnijs": "OmniSketch (port of authors' code)",
              "omnip": "OmniSketch (ours, same $B$)", "omniv": "OmniSketch (journal cfg.)",
              "omnil": "OmniSketch ($8{\\times}3$, lean)", "omni:256:2": "OmniSketch ($256{\\times}2$)",
              "omni:1024:2": "OmniSketch ($1024{\\times}2$)"}
@@ -505,11 +514,15 @@ if os.path.exists("results/time/time.log"):
     tp = t[t.dataset.isin(["taxi", "mawi"])].pivot_table(index=["dataset", "mem"], columns="method", values="mrps")
     note("throughput (Mrec/s)", t[~t.dataset.str.startswith("census")].pivot_table(index=["dataset", "mem"], columns="method", values="mrps"))
     for meth, tag in [("res", "Res"), ("uss", "Uss"), (RSC1, "CalOne"), (RSC2, "CalTwo"), (RSC3, "CalThree"), (CS1, "CsOne"), (CS2, "Cs"),
-                      (CSH, "Csh"), ("omnij", "Java"), ("omnip", "OmniPaper"), ("omnil", "OmniLean"), ("omniv", "OmniJournal"),
+                      (CSH, "Csh"), (CSH3, "CshThree"), (USSC3, "UssCalThree"), (USSC2, "UssCalTwo"), ("omnij", "Java"), ("omnip", "OmniPaper"), ("omnil", "OmniLean"), ("omniv", "OmniJournal"),
                       ("omni:256:2", "OmniMid"), ("ash", "Ash")]:
         if meth in tp.columns:
             lo, hi = tp[meth].min(), tp[meth].max()
             NUM[f"Tp{tag}Lo"], NUM[f"Tp{tag}Hi"] = (f"{lo:.1f}" if lo >= 1 else f"{lo:.2f}"), (f"{hi:.1f}" if hi >= 1 else f"{hi:.2f}")
+    tz = t[(t.dataset == "zipf13_5M")].pivot_table(index="mem", columns="method", values="mrps")
+    for meth, tag in [(RSC2, "CalTwo"), (RSC3, "CalThree"), (RSC1, "CalOne"), (USSC3, "UssCalThree"), (CSH3, "CshThree")]:
+        if meth in tz.columns and 10.0 in tz.index:
+            NUM[f"TpZipf{tag}"] = f"{tz.loc[10.0, meth]:.1f}"
     omni_cols = [c for c in ["omnij", "omnip", "omnil", "omniv", "omni:256:2", "omni:1024:2"] if c in tp.columns]
     if omni_cols:
         for meth, tag in [(RSC2, "CalTwo"), (CS2, "Cs"), (CS1, "CsOne"), (RSC3, "CalThree")]:
@@ -528,7 +541,8 @@ if os.path.exists("results/time/time.log"):
     if len(q):
         ql = q.pivot_table(index=["dataset", "mem"], columns="method", values="q_us")
         note("query latency (us)", ql)
-        oc = [c for c in ["omnijs", "omnip", "omniv", "omni:256:2", "omni:1024:2"] if c in ql.columns]
+        # our implementation only: the port of the authors' tree-based code is listed separately
+        oc = [c for c in ["omnip", "omniv", "omni:256:2", "omni:1024:2"] if c in ql.columns]
         for meth, tag in [(CS2, "Cs"), (RSC2, "CalTwo"), ("res", "Res")]:
             if meth in ql.columns and oc:
                 r = ql[meth] / ql[oc].min(axis=1)

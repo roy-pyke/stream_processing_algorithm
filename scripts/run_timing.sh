@@ -8,7 +8,7 @@ PIN=""
 command -v taskset >/dev/null 2>&1 && PIN="taskset -c 0"
 T=results/time/time.log
 : > "$T"
-TM="res uss ussc ussc:0:0.25 omnij omnip omnil omniv omni:256:2 omni:1024:2 ash cs:0:1e9 cs:0:1e9:1:0.25 cs:0:1e9:1:0.15:0.15 cs cs:0:1:1:0.25 csh:0:1:0.25"
+TM="res uss ussc ussc:0:0.25 omnij omnip omnil omniv omni:256:2 omni:1024:2 ash cs:0:1e9 cs:0:1e9:1:0.25 cs:0:1e9:1:0.15:0.15 cs cs:0:1:1:0.25 csh:0:1:0.25 ussc:0:0.15:0.15 csh:0:1:0.15:0.15"
 for ds in taxi mawi zipf13_5M; do
   for mem in 1 10 50; do
     $PIN ./bin/bench time data/$ds.bin $ds $mem 1 3 $TM >> "$T"

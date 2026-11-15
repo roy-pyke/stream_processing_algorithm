@@ -65,10 +65,11 @@ with open("paper/tables/journal_metric.tex", "w") as f:
     f.write(f" & \\multicolumn{{{len(ks)}}}{{c}}{{mean absolute error (records)}} & \\multicolumn{{{len(ks)}}}{{c}}{{mean relative error}} \\\\\n")
     f.write("$k$ & " + " & ".join(str(k) for k in ks) + " & " + " & ".join(str(k) for k in ks) + " \\\\\n\\midrule\n")
     t = s[s.method == "res"].set_index("k").truth
-    f.write("\\emph{mean true answer} & " + " & ".join(f"{t[k]:.3g}" for k in ks) + " & " + " & ".join("" for _ in ks) + " \\\\\n\\midrule\n")
+    num_ = lambda v: (f"{v:,.0f}".replace(",", "\\,") if v >= 100 else f"{v:.3g}")
+    f.write("\\emph{mean true answer} & " + " & ".join(num_(t[k]) for k in ks) + " & " + " & ".join("" for _ in ks) + " \\\\\n\\midrule\n")
     for key, name in lab.items():
         r = s[s.method == key].set_index("k")
         if not len(r):
             continue
-        f.write(name + " & " + " & ".join(f"{r.ae[k]:.3g}" for k in ks) + " & " + " & ".join(f"{r.re[k]:.2f}" for k in ks) + " \\\\\n")
+        f.write(name + " & " + " & ".join(num_(r.ae[k]) for k in ks) + " & " + " & ".join(f"{r.re[k]:.2f}" for k in ks) + " \\\\\n")
     f.write("\\bottomrule\n\\end{tabular}\n")

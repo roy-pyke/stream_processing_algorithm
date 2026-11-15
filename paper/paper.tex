@@ -59,9 +59,12 @@ are driven by the same counters---provably unbiased under a hard memory budget a
 uniform sampling in standard error---it lowers the error of queries anchored on rare values of
 low-cardinality attributes by a further \NumTaxiDOneGainTen--\NumTaxiDOneGainFifty$\times$ at 10--50\,MB.
 The best calibrated row sample is \NumOmniAnyVsBestRowLo--\NumOmniAnyVsBestRowHi$\times$ more accurate
-than the best \omni variant (geometric mean \NumOmniAnyVsBestRowGm$\times$) and, on five-attribute
-streams where Hydra can be run, on par with Hydra at a small fraction of its update cost. The calibrated
-samples ingest \NumTpCalTwoLo--\NumTpCalTwoHi{} million records per second on one laptop core.
+than the best \omni variant (geometric mean \NumOmniAnyVsBestRowGm$\times$) and, on the five-attribute
+Zipf streams where Hydra can be run,
+\NumHydraVsUssCalThreeLo--\NumHydraVsUssCalThreeHi$\times$ more accurate than Hydra at a fraction of its
+update cost. With pair tables the
+samples ingest \NumTpCalTwoLo--\NumTpCalTwoHi{} million records per second on one laptop core, comparable
+to an optimised \omni; \omni retains a lower query latency.
 \end{abstract}
 
 \section{Introduction}
@@ -313,7 +316,7 @@ compare against the published numbers; none of them is mentioned in the paper.
 \texttt{OmniSketch.query()} implements~\eqref{eq:thm33}: it returns the bound
 $2n_{\max}L/(B\epsilon^2)$ whenever $|S_\cap|<3L/\epsilon^2$, and stores the always-scaled value
 $\lceil |S_\cap|\,n_{\max}/B\rceil$ in a separate field (\texttt{case2Estimate}). With
-$\epsilon=\delta=0.1$ the switch-over point $3L/\epsilon^2$ lies between 2\,400 and 3\,300 sampled
+$\epsilon=\delta=0.1$ the switch-over point $3L/\epsilon^2$ lies between about 2\,600 and 3\,600 sampled
 records for all budgets we use, which is more than half of $B$ at 10\,MB. As a consequence the bound
 is returned for \NumValBoundFracLo--\NumValBoundFracHi\% of the multi-predicate queries of the original
 workload at every budget from 1 to 100\,MB, and the returned values are off by
@@ -338,7 +341,7 @@ act as nearly perfect hash functions and there are \emph{fewer} collisions than 
 Section~\ref{sec:validation} quantifies both effects.
 
 \paragraph{R3: hash width and sample bookkeeping.} The number of hash bits is computed with the natural
-logarithm, $b=\lceil\ln(4B^{2.5}/\delta)\rceil$, which gives 20--31 bits for budgets of 1--100\,MB, and
+logarithm, $b=\lceil\ln(4B^{2.5}/\delta)\rceil$, which gives 20--31 bits for budgets of 1--100\,MB and five attributes, and
 $g$ maps record identifiers to $\{0,\dots,\min(2^b,2^{31}-1)-1\}$; distinct records therefore share
 hash values (about $N^2/2^{b+1}$ pairs). A cell stores a set of distinct hash values, counts a duplicate
 arrival towards its capacity while filling up, and evicts its maximum without inserting when a duplicate
@@ -617,7 +620,7 @@ as an ablation.
 
 \paragraph{\omni implementations.} We use four.
 \emph{(a)~Authors' code.} The Java sources of~\cite{omni} are compiled unmodified (JDK~21) and driven by a
-130-line harness that replaces only their input/output layer: it reads our binary streams and query
+small harness (about 230 lines) that replaces only their input/output layer: it reads our binary streams and query
 files, obtains the sketch parameters from their \texttt{RamToPar}/\texttt{DetermineB} classes, and calls
 their \texttt{OmniSketch.add()} and \texttt{query()}.
 \emph{(b)~Port.} A C++ port that reproduces (a) bit by bit: the \texttt{java.util.Random}-based hash
@@ -646,8 +649,9 @@ single-threaded). \emph{Reservoir (RS)}: Algorithm~L~\cite{li} over a columnar s
 \emph{USS}: Unbiased Space-Saving~\cite{ting-uss} on the full $p$-tuple with a hash index and a binary
 min-heap. \emph{\cs} and \emph{\csh}: as described, with $\lambda=1$, $\gamma=1$, $\sigma=0.1$,
 automatic $w$ and pair tables ($\phi_2=0.25$); ``\cs (C1)'' is the variant without pair tables.
-\textsc{USS+C1}/\textsc{C2} is USS with the counter rows (and pair tables) and
-calibration~\eqref{eq:cal}. \textsc{RS+C1}/\textsc{C2}/\textsc{C3} is \cs with $\lambda=\infty$, i.e., a uniform
+\textsc{USS+C1}/\textsc{C2}/\textsc{C3} is USS with the counter rows (and pair, and triple tables) and
+calibration~\eqref{eq:cal}; ``\csh (C3)'' is the hold mode with pair and triple tables
+($\phi_2=\phi_3=0.15$). \textsc{RS+C1}/\textsc{C2}/\textsc{C3} is \cs with $\lambda=\infty$, i.e., a uniform
 sample with the same budget control and calibration at the given level (C3: $\phi_2=\phi_3=0.15$).
 \emph{aSH}: a port of the sampling baseline of the journal version's code---adaptive
 Sample-and-Hold~\cite{ash} keyed on the full tuple with a 10\% ingest buffer and batched ejection.
@@ -756,10 +760,10 @@ a sample rather than used directly.
 
 \section{Discussion and Limitations}\label{sec:discussion}
 
-\emph{Streams.} We could not run on the SNMP and CAIDA traces of~\cite{omni}; a reviewer may rightly ask
-for them. The repository contains the converters and scripts needed to add them. On the synthetic
-streams, which we generate with the authors' generator, the authors' code reproduces the published
-error levels (Section~\ref{sec:validation}).
+\emph{Streams.} We could not run on the SNMP and CAIDA traces of~\cite{omni}, and the conclusions for
+those two traces remain to be confirmed; the repository contains the scripts needed to add them. On the
+synthetic streams, which we generate with the authors' generator, the authors' code reproduces the
+published error levels (Section~\ref{sec:validation}).
 \emph{Implementation of the competitor.} The comparison includes the authors' implementation itself
 (through a port that is verified query by query). Our own implementation is more accurate than theirs on
 some streams and less accurate on others (Section~\ref{sec:validation}), which is why ``\omni (best)''
@@ -774,8 +778,13 @@ conjunctions of many predicates the anchor cell is much larger than the answer a
 Their update cost grows quadratically in $p$ (cubically with triple tables), which matters for wide
 streams. Hash stratification helps only for rare values of attributes whose tail carries little mass.
 \emph{Query latency.} Row samples are scanned linearly, whereas \omni intersects $|Q|d$ sorted lists and
-answers one to two orders of magnitude faster (Section~\ref{sec:speed}). Per-stratum indexes on the row
-store would close this gap.
+answers \NumQlatCalTwoVsOmniLo--\NumQlatCalTwoVsOmniHi$\times$ faster; a bucket index on the row store
+narrows this to \NumQlatIndexVsOmniLo--\NumQlatIndexVsOmniHi$\times$ at the cost of query-time memory
+(Section~\ref{sec:speed}).
+\emph{Update cost.} With pair tables the samples ingest at about the rate of an optimised \omni, and
+with triple tables several times slower; the tables do not scale linearly in the number of attributes.
+\emph{Unproven parts.} The hold mode comes without a proof of unbiasedness under budget control, and
+the plug-in confidence intervals are unreliable for small counts (Section~\ref{sec:ablation}).
 \emph{Hardware.} All experiments ran on a single laptop CPU; absolute throughputs will differ on server
 hardware.
 
