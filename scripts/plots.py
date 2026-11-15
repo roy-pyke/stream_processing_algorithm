@@ -26,6 +26,7 @@ STYLE = {
     "omnip":    ("OmniSketch (ours, same $B$)", "#b05c7d", "x", "--"),
     "omniv":    ("OmniSketch (journal cfg.)",  "#9a6fb0", "+", "--"),
     "omnibest": ("OmniSketch (best)",          "#008300", "D", "--"),
+    "hydra":    ("Hydra (authors' adaptation)", "#7a5c2e", "d", "-."),
     "ash":      ("aSH (journal acct.)",        "#8c8c84", "<", ":"),
     "ashl":     ("aSH (lean acct.)",           "#5c5c55", ">", ":"),
     "resj":     ("RS (journal acct.)",         "#c9a07a", "s", ":"),
@@ -117,6 +118,9 @@ def tex_label(key):
 
 # ====================================================================== main accuracy matrix
 acc = pd.read_csv("results/agg_acc.csv")
+if os.path.exists("results/agg_hydra.csv"):
+    hy = pd.read_csv("results/agg_hydra.csv")
+    acc = pd.concat([acc, hy[hy.dataset.isin(set(acc.dataset))]], ignore_index=True)
 DATASETS = [d for d in DATASETS if d in set(acc.dataset)]
 REAL = [d for d in DATASETS if d in ("taxi", "mawi", "dmv")]
 # Primary metric: NAE on record-sampled queries with k >= 2 predicates (workload definition of the OmniSketch paper).
@@ -132,7 +136,7 @@ NUM["OmniFamilySize"] = str(len(OMNI_FAMILY))
 NUM["RealStreams"] = {1: "one", 2: "two", 3: "three"}[len(REAL)]
 
 # ---------------------------------------------------------------- Fig: NAE vs memory
-order = ["omnijs", "omnibest", "res", RSC2, USSC2, CS2, CSH]
+order = ["omnijs", "omnibest", "hydra", "res", RSC2, USSC2, CS2, CSH]
 ncol_ = 4 if len(DATASETS) > 6 else 3
 fig, axes = plt.subplots(2, ncol_, figsize=(7.0 if ncol_ == 3 else 8.6, 4.1), sharex=True)
 for ax in axes.flat[len(DATASETS):]:
@@ -178,7 +182,7 @@ fig.savefig("paper/figs/anchor.pdf", bbox_inches="tight")
 plt.close(fig)
 
 # ---------------------------------------------------------------- Table: main accuracy table at 1 and 10 MB
-tab_methods = ["omnijs", "omnip", "omniv", "omnibest", "ash", "res", "uss", RSC1, RSC2, RSC3, USSC2, CS2, CSH]
+tab_methods = ["omnijs", "omnip", "omniv", "omnibest", "hydra", "ash", "res", "uss", RSC1, RSC2, RSC3, USSC2, CS2, CSH]
 with open("paper/tables/main_acc.tex", "w") as f:
     f.write("\\begin{tabular}{l" + "r" * len(DATASETS) + "}\n\\toprule\n")
     f.write("Method & " + " & ".join(DS_LABEL[d] for d in DATASETS) + " \\\\\n\\midrule\n")
@@ -252,6 +256,16 @@ for ds, tag in [("unif_5M", "Unif"), ("taxi", "Taxi"), ("zipf10_5M", "ZipfTen")]
         NUM[f"JavaFlat{tag}"] = fnum(s.loc[10.0] / s.loc[50.0], 2) if 10.0 in s.index and 50.0 in s.index else "??"
         r = P["res"].loc[ds]
         NUM[f"ResFlat{tag}"] = fnum(r.loc[10.0] / r.loc[50.0], 2) if 10.0 in r.index and 50.0 in r.index else "??"
+# Hydra (5-attribute synthetic streams only)
+if "hydra" in P.columns:
+    hyi = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0] != "unif_5M"]
+    put("ResVsHydra", (P["res"] / P["hydra"]).loc[hyi], 1)            # > 1: Hydra more accurate than the reservoir
+    put("OmniAnyVsHydra", (P["omnibest"] / P["hydra"]).loc[hyi], 1)
+    put("HydraVsCalTwo", (P["hydra"] / col(P, RSC2)).loc[hyi], 2)     # > 1: RS+C2 more accurate than Hydra
+    put("HydraVsCalThree", (P["hydra"] / col(P, RSC3)).loc[hyi], 2)
+    hrun = acc[acc.method == "hydra"]
+    if len(hrun):
+        NUM["TpHydraLo"], NUM["TpHydraHi"] = f"{1e3 / hrun.ns_per_rec.max():.2f}", f"{1e3 / hrun.ns_per_rec.min():.2f}"
 # journal-version baselines on the main streams
 put("AshVsRes", col(P, "ash") / P["res"], 2);       put("AshLeanVsRes", col(P, "ashl") / P["res"], 2)
 put("ResjVsRes", col(P, "resj") / P["res"], 2)

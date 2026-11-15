@@ -10,6 +10,10 @@
 //
 // Usage:
 //   java omniVLDB.Harness run <data.bin> <workload.wl> <out.csv> <name> <repetition> <mem_mb>...
+//   java omniVLDB.Harness hydra <data.bin> <workload.wl> <out.csv> <name> <repetition> <mem_mb>...
+//        (the authors' adaptation of Hydra, omniVLDB.HYDRA_VLDB.HYDRA_VLDB.ImpHydraStruct, sized by
+//         their RamToPar.getParamsHydra; every record updates 2^p - 1 subpopulations)
+//   java omniVLDB.Harness gen <out.bin> <numRecords> <numAttributes> <alpha>
 //   java omniVLDB.Harness hashes <repetition> <b> <width> <depth>     (prints test vectors)
 //
 // Output (one line per query, appended to out.csv):
@@ -18,6 +22,7 @@
 // intersection is small) and "case2Estimate" is ceil(|S_cap| * n_max / B) (Corollary 3.4).
 package omniVLDB;
 
+import omniVLDB.HYDRA_VLDB.HYDRA_VLDB.ImpHydraStruct;
 import omniVLDB.omni.Kmin;
 import omniVLDB.omni.OmniSketch;
 
@@ -98,6 +103,7 @@ public class Harness {
             gen(args);
             return;
         }
+        boolean hydraMode = args[0].equals("hydra");
         String dataPath = args[1], wlPath = args[2], outPath = args[3], name = args[4];
         Main.repetition = Integer.parseInt(args[5]);
         Main.runOnODC = false;
@@ -132,7 +138,18 @@ public class Harness {
                     System.err.println("budget too small: " + args[6 + ri]);
                     continue;
                 }
-                OmniSketch s = new OmniSketch(hasPred, ram);
+                Synopsis s;
+                String cfg;
+                if (hydraMode) {
+                    double[] hp = rtp.getParamsHydra(ram);
+                    ArrayList<Integer> attrsIdx = new ArrayList<>();
+                    for (int i = 0; i < p; i++) attrsIdx.add(i);
+                    s = new ImpHydraStruct(ram, (int) hp[0], (int) hp[1], (int) hp[2], (int) hp[3], attrsIdx);
+                    cfg = "dRoot=" + (int) hp[0] + ";wRoot=" + (int) hp[1] + ";dCS=" + (int) hp[2] + ";wCS=" + (int) hp[3];
+                } else {
+                    s = new OmniSketch(hasPred, ram);
+                    cfg = "w=" + Main.width + ";d=" + Main.depth + ";B=" + Main.maxSize + ";b=" + Main.b;
+                }
                 long t0 = System.nanoTime();
                 for (int i = 0; i < n; i++) {
                     long[] rec = new long[p];
@@ -159,9 +176,8 @@ public class Harness {
                 double tQuery = (System.nanoTime() - t1) / 1e9;
                 out.print(sb);
                 out.flush();
-                System.out.printf("JRUN,%s,%s,%d,%d,%d,%.3f,%.2f,%.2f,%.3f,w=%d;d=%d;B=%d;b=%d%n", name, args[6 + ri],
-                        Main.repetition, p, n, tIngest, tIngest / n * 1e9, tQuery / wl.size() * 1e6, memBits / 8e6,
-                        Main.width, Main.depth, Main.maxSize, Main.b);
+                System.out.printf("%s,%s,%s,%d,%d,%d,%.3f,%.2f,%.2f,%.3f,%s%n", hydraMode ? "HRUN" : "JRUN", name, args[6 + ri],
+                        Main.repetition, p, n, tIngest, tIngest / n * 1e9, tQuery / wl.size() * 1e6, memBits / 8e6, cfg);
                 s.reset();
             }
         }

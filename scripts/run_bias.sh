@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Empirical unbiasedness check: mean of the Horvitz-Thompson-type estimate over many independent
 # seeds, for CoStrata (Theorem 1 applies) and for the hold variant CoStrata-H (no proof given).
-#   taxi 1 MB, seeds 101-700;  zipf15_5M 0.5 MB, seeds 101-400;  mawi 1 MB, seeds 101-400
+#   taxi 1 MB, seeds 1001-1600;  zipf15_5M 0.5 MB, seeds 3001-3300;  mawi 1 MB, seeds 5001-5300
+# The seed ranges are disjoint on purpose: a record's priority depends only on the seed and the
+# record identifier, so runs with equal seeds are correlated across streams.
 # Usage: scripts/run_bias.sh [parallel_jobs]
 set -u
 cd "$(dirname "$0")/.."
@@ -15,7 +17,7 @@ run_b() {
   ./bin/bench acc data/$ds.bin work/$ds.wl "$f.csv" "$ds" "$mem" "$seed" cs csh > "$f.log" 2> "$f.err"
 }
 export -f run_b
-{ for seed in $(seq 101 700); do echo "taxi 1 $seed"; done
-  for seed in $(seq 101 400); do echo "zipf15_5M 0.5 $seed"; done
-  for seed in $(seq 101 400); do echo "mawi 1 $seed"; done; } | xargs -P "$J" -L 1 bash -c 'run_b $0 $1 $2'
+{ for seed in $(seq 1001 1600); do echo "taxi 1 $seed"; done
+  for seed in $(seq 3001 3300); do echo "zipf15_5M 0.5 $seed"; done
+  for seed in $(seq 5001 5300); do echo "mawi 1 $seed"; done; } | xargs -P "$J" -L 1 bash -c 'run_b $0 $1 $2'
 echo "bias runs done"

@@ -144,9 +144,11 @@ separate by ablation. We report negative results for our own methods as well.
 
 \paragraph{What we do not claim.} Our streams are not those of the original evaluation: the SNMP and
 CAIDA traces require registration, and we use a taxi-trip table and a public backbone trace instead
-(Section~\ref{sec:setup}). We study the insert-only model; the bounded-deletion model of the journal
+(Section~\ref{sec:setup}); we add a third public table that is standard in the selectivity-estimation
+literature. We study the insert-only model; the bounded-deletion model of the journal
 version, where row samples are at a structural disadvantage, is out of scope. \omni has a markedly
-lower query latency than a scanned row sample. All negative results for our own methods are reported
+lower query latency than a scanned row sample; a query-time index narrows the gap to a small factor at
+the cost of additional memory (Section~\ref{sec:speed}). All negative results for our own methods are reported
 in Sections~\ref{sec:results} and~\ref{sec:discussion}.
 
 \section{Problem and Background}\label{sec:background}
@@ -631,11 +633,18 @@ and $B$ is chosen with knowledge of the final cell loads such that the hashes \e
 favourable to \omni than any deployable configuration. ``\omni (best)'' denotes, separately for every
 stream, budget and metric, the best of all \NumOmniFamilySize{} variants (a)--(d).
 
+\paragraph{Hydra.} We run the adaptation of Hydra~\cite{hydra} that ships with the code of~\cite{omni}
+(restricted to counts, sized by that code's parameter search) through the same harness, unmodified. Every
+record updates $2^p-1$ subpopulations, so we use it on the five-attribute synthetic streams only; its
+sketch seeds are fixed in the code, so there is a single repetition.
+
 \paragraph{Row samples.} All are implemented in the same C++17 framework (\texttt{g++ -O3 -march=native},
 single-threaded). \emph{Reservoir (RS)}: Algorithm~L~\cite{li} over a columnar store.
 \emph{USS}: Unbiased Space-Saving~\cite{ting-uss} on the full $p$-tuple with a hash index and a binary
-min-heap. \emph{\cs} and \emph{\csh}: as described, with $\lambda=1$, $\gamma=1$, $\sigma=0.1$ and
-automatic $w$. \textsc{RS+C1}/\textsc{C2}/\textsc{C3} is \cs with $\lambda=\infty$, i.e., a uniform
+min-heap. \emph{\cs} and \emph{\csh}: as described, with $\lambda=1$, $\gamma=1$, $\sigma=0.1$,
+automatic $w$ and pair tables ($\phi_2=0.25$); ``\cs (C1)'' is the variant without pair tables.
+\textsc{USS+C1}/\textsc{C2} is USS with the counter rows (and pair tables) and
+calibration~\eqref{eq:cal}. \textsc{RS+C1}/\textsc{C2}/\textsc{C3} is \cs with $\lambda=\infty$, i.e., a uniform
 sample with the same budget control and calibration at the given level (C3: $\phi_2=\phi_3=0.15$).
 \emph{aSH}: a port of the sampling baseline of the journal version's code---adaptive
 Sample-and-Hold~\cite{ash} keyed on the full tuple with a 10\% ingest buffer and batched ejection.
@@ -695,7 +704,9 @@ held in memory.
 \section{Related Work}\label{sec:related}
 
 \paragraph{Synopses for ad-hoc predicates on streams.} Hydra~\cite{hydra} hashes each record into a
-sketch of universal sketches~\cite{univmon} once per attribute subset and is exponential in $p$.
+sketch of universal sketches~\cite{univmon} once per attribute subset and is exponential in $p$; where it
+can be run it is accurate (Section~\ref{sec:acc}), and our pair and triple tables can be read as a Hydra
+truncated at order two or three whose answers are refined by a sample.
 \omni~\cite{omni,omni-sr} replaced this by per-attribute sketches with embedded samples; its journal
 version~\cite{omni-vldbj} extends it to bounded deletions and compares it with adaptive
 sample-and-hold~\cite{ash}. To our knowledge, neither version is compared with a plain row sample under

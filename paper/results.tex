@@ -97,6 +97,19 @@ improves by a factor \NumJavaFlatTaxi{} on Taxi and \NumJavaFlatZipfTen{} on Zip
 reservoir by \NumResFlatTaxi{} and \NumResFlatZipfTen), because the collision term of
 Proposition~\ref{prop:bias} does not depend on $B$.
 
+\paragraph{Hydra.} On the five-attribute synthetic streams, where its $2^p-1=31$ updates per record
+are affordable, Hydra is the most accurate of the sketches: \NumResVsHydraLo--\NumResVsHydraHi$\times$
+more accurate than the reservoir on the Zipf streams and
+\NumOmniAnyVsHydraLo--\NumOmniAnyVsHydraHi$\times$ more accurate than the best \omni variant. This is
+the other end of the design space---exact-in-expectation counters for \emph{every} attribute
+subset---and it shows what counters can do for frequent conjunctions; \omni gave this up for an update
+cost linear in $p$. The calibrated sample of Section~\ref{sec:cal} recovers it at polynomial cost:
+\textsc{RS+C2} is within a factor \NumHydraVsCalTwoLo--\NumHydraVsCalTwoHi{} of Hydra (values above 1
+favour \textsc{RS+C2}) and \textsc{RS+C3} within \NumHydraVsCalThreeLo--\NumHydraVsCalThreeHi, while
+ingesting one to two orders of magnitude faster (Hydra processed
+\NumTpHydraLo--\NumTpHydraHi{} million records per second in our runs) and scaling to streams on which
+Hydra cannot be run.
+
 \subsection{The journal version's sampling baseline}\label{sec:journal}
 
 \begin{table}[t]

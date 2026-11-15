@@ -16,6 +16,8 @@ results/abl/
 results/census/
 results/journal/
 results/bias/
+results/bias_first_batch/
+results/hydra/
 results/validation/java/
 results/validation/cpp/
 results/colab/results/
