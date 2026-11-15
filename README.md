@@ -24,6 +24,7 @@ chosen at query time on multi-attribute streams:
 | `scripts/` | setup of the upstream code, dataset conversion, experiment drivers, aggregation, plotting, paper checks |
 | `results/` | aggregated results (`agg_*.csv`, `validation/`, `bias.json`, timing logs); raw per-run logs are not tracked |
 | `paper/` | LaTeX draft (`paper.tex`, `results.tex`), generated `figs/`, `tables/`, `numbers.tex` |
+| `docs/` | [`datasets.md`](docs/datasets.md): every stream (type, source, terms, checksums); [`references.md`](docs/references.md): where to get the papers and code we worked from |
 
 ## Build
 
@@ -36,6 +37,11 @@ scripts/setup_upstream.sh              # clones github.com/wiegerpunter/omnisket
 ```
 
 ## Data (not tracked)
+
+See [`docs/datasets.md`](docs/datasets.md) for a description of every stream, its terms of use and the
+checksums of the files behind the published results. Synthetic streams (including those from the authors'
+generator, which cannot be regenerated bit for bit), query workloads and raw per-run logs are attached to the
+release [`artifacts-2026-11-15`](https://github.com/roy-pyke/stream_processing_algorithm/releases/tag/artifacts-2026-11-15).
 
 Real streams (place downloads in `data/raw/`):
 
