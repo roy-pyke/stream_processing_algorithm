@@ -59,15 +59,15 @@ the best of all variants.
 \centering
 \includegraphics[width=\textwidth]{figs/nae_vs_mem.pdf}
 \caption{Normalized absolute error on record-sampled queries with $k\ge2$ predicates versus memory
-(mean of 5 seeds; lower is better). ``\omni (best)'' is the best of \NumOmniFamilySize{} variants,
-chosen separately for every point.}
+(mean of 5 seeds, 3 for DMV; Hydra: one run, five-attribute streams only; lower is better).
+``\omni (best)'' is the best of \NumOmniFamilySize{} variants, chosen separately for every point.}
 \label{fig:nae}
 \end{figure}
 
 \begin{table}[t]
 \centering\small
-\caption{Normalized absolute error, record-sampled queries with $k\ge2$ predicates (mean of 5 seeds).
-Bold: best method per column and budget.}
+\caption{Normalized absolute error, record-sampled queries with $k\ge2$ predicates (mean of 5 seeds, 3 for
+DMV; Hydra: one run). Bold: best method per column and budget.}
 \label{tab:main}
 \input{tables/main_acc}
 \end{table}
@@ -76,18 +76,22 @@ Figure~\ref{fig:nae} and Table~\ref{tab:main} show the main comparison.
 
 \paragraph{The authors' code.} At the budgets of the original study (10\,MB and more) the row reservoir
 has a \NumJavaVsResTenLo--\NumJavaVsResTenHi$\times$ lower error than the authors' code (geometric mean
-\NumJavaVsResTenGm$\times$); the smallest gaps are on the synthetic streams and the largest on the two
-real streams (\NumJavaVsResTenTaxiLo--\NumJavaVsResTenTaxiHi$\times$ on Taxi,
-\NumJavaVsResTenMawiLo--\NumJavaVsResTenMawiHi$\times$ on MAWI). Below 5\,MB the authors' code degrades
-sharply---its error exceeds $10^{-3}N$ on every stream---because its record hashes then have only
-19--23 bits and collide massively (R3); we therefore do not use these budgets for headline numbers.
+\NumJavaVsResTenGm$\times$): \NumJavaVsResTenSynLo--\NumJavaVsResTenSynHi$\times$ on the synthetic streams,
+\NumJavaVsResTenTaxiLo--\NumJavaVsResTenTaxiHi$\times$ on Taxi,
+\NumJavaVsResTenMawiLo--\NumJavaVsResTenMawiHi$\times$ on MAWI and
+\NumJavaVsResTenDmvLo--\NumJavaVsResTenDmvHi$\times$ on DMV, whose 15 attributes leave the prescribed
+configuration with small per-cell samples. Below 5\,MB the authors' code degrades sharply (at 1\,MB
+its error is between $8\cdot10^{-4}N$ and $4\cdot10^{-2}N$, see Table~\ref{tab:main}). Our
+implementation with the same $(w,d,B)$ but 63-bit record hashes does not show this collapse, which
+points to the hash width of R3: at 1\,MB the code hashes millions of record identifiers to 20 bits. We
+do not use these budgets for headline numbers.
 
 \paragraph{Our implementation and the configuration search.} With the same $(w,d,B)$ but strong hashes
 the gap to the reservoir is \NumOmniPaperVsResLo--\NumOmniPaperVsResHi$\times$ over all budgets
 (geometric mean \NumOmniPaperVsResGm$\times$), and \NumOmniJournalVsResLo--\NumOmniJournalVsResHi$\times$
 for the configuration of the journal version's code on the non-uniform streams. Tuning does not close
-the gap: on the five non-uniform streams, the best of all \NumOmniFamilySize{} variants---including the
-eight oracle-accounted configurations---is still \NumOmniAnyVsResLo--\NumOmniAnyVsResHi$\times$ worse
+the gap: on the non-uniform streams, the best of all \NumOmniFamilySize{} variants---including the
+oracle-accounted configurations---is still \NumOmniAnyVsResLo--\NumOmniAnyVsResHi$\times$ worse
 than the reservoir (geometric mean \NumOmniAnyVsResGm$\times$). The only tie is the Uniform stream,
 where multi-predicate queries match one or two records, every method essentially returns zero, and the
 ratio is \NumOmniAnyVsResUnifLo--\NumOmniAnyVsResUnifHi. The shape of the curves confirms
@@ -98,17 +102,24 @@ reservoir by \NumResFlatTaxi{} and \NumResFlatZipfTen), because the collision te
 Proposition~\ref{prop:bias} does not depend on $B$.
 
 \paragraph{Hydra.} On the five-attribute synthetic streams, where its $2^p-1=31$ updates per record
-are affordable, Hydra is the most accurate of the sketches: \NumResVsHydraLo--\NumResVsHydraHi$\times$
-more accurate than the reservoir on the Zipf streams and
-\NumOmniAnyVsHydraLo--\NumOmniAnyVsHydraHi$\times$ more accurate than the best \omni variant. This is
-the other end of the design space---exact-in-expectation counters for \emph{every} attribute
-subset---and it shows what counters can do for frequent conjunctions; \omni gave this up for an update
-cost linear in $p$. The calibrated sample of Section~\ref{sec:cal} recovers it at polynomial cost:
-\textsc{RS+C2} is within a factor \NumHydraVsCalTwoLo--\NumHydraVsCalTwoHi{} of Hydra (values above 1
-favour \textsc{RS+C2}) and \textsc{RS+C3} within \NumHydraVsCalThreeLo--\NumHydraVsCalThreeHi, while
-ingesting one to two orders of magnitude faster (Hydra processed
-\NumTpHydraLo--\NumTpHydraHi{} million records per second in our runs) and scaling to streams on which
-Hydra cannot be run.
+are affordable, Hydra is the strongest of the sketches. It is
+\NumOmniAnyVsHydraLo--\NumOmniAnyVsHydraHi$\times$ more accurate than the best \omni variant on the Zipf
+streams (geometric mean \NumOmniAnyVsHydraGm$\times$). Against the reservoir the picture depends on the
+budget: Hydra's error falls roughly as $1/M$, that of a sample as $M^{-1/2}$, so Hydra is behind on
+the least skewed stream up to 20\,MB and ahead by up to \NumResVsHydraHi$\times$ on the most skewed one
+at 50\,MB (ratio of errors \NumResVsHydraLo--\NumResVsHydraHi, geometric mean \NumResVsHydraGm). On the Uniform stream,
+where answers are one or two records, its Count-Sketch noise makes it an order of magnitude worse than
+any sample up to 10\,MB. This is the other end of the design space---counters for \emph{every}
+attribute subset---and it shows what counters can do for frequent conjunctions; \omni gave this up for
+an update cost linear in $p$. The calibrated samples of Section~\ref{sec:cal} get most of the way at
+polynomial cost: the error of Hydra relative to \textsc{RS+C2} is
+\NumHydraVsCalTwoLo--\NumHydraVsCalTwoHi{} (geometric mean \NumHydraVsCalTwoGm; values above 1 favour the
+calibrated sample) and relative to \textsc{RS+C3} \NumHydraVsCalThreeLo--\NumHydraVsCalThreeHi{}
+(\NumHydraVsCalThreeGm). The calibrated samples are ahead at small and medium budgets and Hydra at the
+largest ones, where every one of its 31 subpopulation sketches has become accurate. Hydra processes
+\NumTpHydraIdle{} million records per second (Zipf with $\alpha=1.3$, 10\,MB, idle machine), about two
+orders of magnitude less than the calibrated samples, and its cost doubles with every attribute; we
+could not run it on the real streams.
 
 \subsection{The journal version's sampling baseline}\label{sec:journal}
 
@@ -148,21 +159,26 @@ the calibrated sample another \NumJSCalTwoVsResLo--\NumJSCalTwoVsResHi$\times$.
 
 \emph{Workload and metric.} The journal-style procedure draws, for each sampled record, one query for
 every $k=1,\dots,p$. On a stream with nine attributes most of these queries match a single record
-(Table~\ref{tab:journalk}): the mean true answer falls from about $1.5\cdot10^5$ for $k=1$ to less than
-2 for $k\ge6$. For such queries the choice of metric decides the winner. Under Bernoulli sampling at
-rate $\rho$, an unbiased estimate of a count $f=1$ is $1/\rho$ with probability $\rho$ and $0$
-otherwise, so its expected \emph{relative} error is $2(1-\rho)\approx2$, whereas an estimator that
-simply returns $0$ has relative error $1$. Table~\ref{tab:journalk} shows exactly this: for $k\le4$,
-where answers are in the tens to hundred thousands, the samples have a 2--5$\times$ lower absolute and
-relative error than \omni; for $k\ge6$ all methods are off by about one or two records, and \omni, whose
-intersections are empty for almost all of these queries, has the lower relative error. Averaged over the
-whole workload, the mean relative error of \omni in the journal configuration at 10\,MB is
-\NumJSMreOmni, that of aSH under the journal accounting \NumJSMreAsh, and that of the reservoir
-\NumJSMreRes. A relative-error average over a workload dominated by near-empty conjunctions therefore
-ranks \omni above the journal's sampling baseline, although the baseline is more accurate on every
-query class whose answer is large enough to be estimated at all. We regard absolute error (or relative
-error restricted to answers above a threshold) as the appropriate metric for a synopsis with additive
-guarantees.
+(Table~\ref{tab:journalk}): the mean true answer falls from about $1.5\cdot10^5$ for $k=1$ to
+\NumJKTruthHigh{} for $k\ge6$, and \NumJKShareHigh\% of the queries have five or more predicates. For such
+queries the choice of metric decides the winner. Under Bernoulli sampling at rate $\rho$, an unbiased
+estimate of a count $f=1$ is $1/\rho$ with probability $\rho$ and $0$ otherwise, so its expected
+\emph{relative} error is $2(1-\rho)\approx2$, whereas an estimator that simply returns $0$ has relative
+error $1$. Table~\ref{tab:journalk} shows exactly this. For $k\le4$, where answers are in the tens to
+hundred thousands, aSH under the journal accounting has a \NumJKAshAbsLo--\NumJKAshAbsHi$\times$ lower
+absolute error than \omni and the reservoir a \NumJKResAbsLo--\NumJKResAbsHi$\times$ lower one. For
+$k\ge6$ all methods are off by one or two records; \omni, whose intersections are empty for
+\NumJKOmniZeroHigh\% of these queries, has a mean relative error of \NumJKOmniRelHigh, aSH of
+\NumJKAshRelHigh{} and the reservoir of \NumJKResRelHigh. Averaged over the whole workload, the mean
+relative error at 10\,MB is \NumJSMreOmni{} for \omni in the journal configuration, \NumJSMreAsh{} for
+aSH under the journal accounting and \NumJSMreRes{} for the reservoir. A relative-error average over a
+workload dominated by near-empty conjunctions therefore ranks \omni above the journal's sampling
+baseline, although the baseline is more accurate on every query class whose answer is large enough to
+be estimated at all. We regard absolute error (or relative error restricted to answers above a
+threshold) as the appropriate metric for a synopsis with additive guarantees. Whether this is the
+mechanism behind the published comparison we cannot tell from the code alone; what the code shows is
+that, in the insert-only setting, neither the accounting nor the algorithm of the sampling baseline
+makes it less accurate than \omni in absolute terms.
 
 \subsection{Calibration}\label{sec:calres}
 
@@ -176,25 +192,28 @@ guarantees.
 Table~\ref{tab:byk} breaks the error down by the number of predicates and shows where each level of
 calibration acts.
 \emph{C1} ties single-predicate estimates to an exact counter of a fine-grained bucket and makes them
-\NumCalOneKoneLo--\NumCalOneKoneHi$\times$ more accurate than the plain reservoir, but does little for
-conjunctions (\NumCalOneKtwoLo--\NumCalOneKtwoHi$\times$ for $k=2$ on the non-uniform streams): a
-one-dimensional count carries little information about a conjunction unless the attributes are strongly
-correlated.
-\emph{C2} does for two-predicate queries what C1 does for one: their error falls by
-\NumCalTwoKtwoLo--\NumCalTwoKtwoHi$\times$ (geometric mean \NumCalTwoKtwoGm$\times$), as predicted by
-Proposition~\ref{prop:pair}; three-predicate queries gain \NumCalTwoKthreeLo--\NumCalTwoKthreeHi$\times$.
-\emph{C3} extends the effect to $k=3$ (\NumCalThreeKthreeLo--\NumCalThreeKthreeHi$\times$) at the price of
-$\binom p3$ increments per record.
+\NumCalOneKoneGm$\times$ more accurate than the plain reservoir in the geometric mean (up to
+\NumCalOneKoneHi$\times$), but does little for conjunctions (\NumCalOneKtwoLo--\NumCalOneKtwoHi$\times$
+for $k=2$ on the non-uniform streams, geometric mean \NumCalOneKtwoGm$\times$): a one-dimensional count
+carries little information about a conjunction unless the attributes are strongly correlated.
+\emph{C2} does for two-predicate queries what C1 does for one: their error falls by a geometric mean of
+\NumCalTwoKtwoGm$\times$ (up to \NumCalTwoKtwoHi$\times$), as predicted by Proposition~\ref{prop:pair};
+three-predicate queries gain \NumCalTwoKthreeGm$\times$ on average and four-predicate queries
+\NumCalTwoKfourGm$\times$.
+\emph{C3} extends the effect to $k=3$ (geometric mean \NumCalThreeKthreeGm$\times$, up to
+\NumCalThreeKthreeHi$\times$) at the price of $\binom p3$ increments per record.
 Over all $k\ge2$, the calibrated uniform sample \textsc{RS+C2} has a
 \NumCalTwoVsResLo--\NumCalTwoVsResHi$\times$ lower NAE than the reservoir on the non-uniform streams
 (geometric mean \NumCalTwoVsResGm$\times$), growing with the budget because wider tables have fewer
 collisions; \textsc{RS+C3} reaches \NumCalThreeVsResLo--\NumCalThreeVsResHi$\times$
-(\NumCalThreeVsResGm$\times$). On the Uniform stream, where every answer is one or two records, there is
-nothing to calibrate (\NumCalTwoVsResUnifLo--\NumCalTwoVsResUnifHi$\times$). The counters alone are not
-enough either: answering from the anchor cell's count without the sample (a pair-level Count-Min
-estimate) is \NumCmVsCalTwoLo--\NumCmVsCalTwoHi$\times$ less accurate than \textsc{RS+C2} for $k\ge3$.
-Relative to the best \omni variant, \textsc{RS+C2} is \NumOmniAnyVsCalTwoLo--\NumOmniAnyVsCalTwoHi$\times$
-more accurate (geometric mean \NumOmniAnyVsCalTwoGm$\times$).
+(\NumCalThreeVsResGm$\times$) and is the most accurate configuration on the Zipf streams, Taxi and DMV. On
+the Uniform stream, where every answer is one or two records, there is nothing to calibrate, and the
+calibrated samples are within \NumCalTwoVsResUnifLo--\NumCalTwoVsResUnifHi{} of the reservoir. The
+counters alone are not enough either: answering from the anchor cell's count without the sample (a
+pair-level Count-Min estimate) is \NumCmVsCalTwoLo--\NumCmVsCalTwoHi$\times$ less accurate than
+\textsc{RS+C2} for $k\ge3$. Relative to the best \omni variant, \textsc{RS+C2} is
+\NumOmniAnyVsCalTwoLo--\NumOmniAnyVsCalTwoHi$\times$ more accurate (geometric mean
+\NumOmniAnyVsCalTwoGm$\times$).
 
 \subsection{Rare anchors: when stratification pays}\label{sec:anchor}
 
@@ -209,23 +228,29 @@ the query.}
 
 Figure~\ref{fig:anchor} groups anchored queries by the frequency of their rarest predicate.
 On Taxi, whose attributes have between 4 and 697 distinct values, most values own a bucket, and the
-stratified samplers guarantee each of them about $B$ sampled rows. For anchors that occur 10--99 times,
-the mean relative error of \cs is \NumTaxiDOneCsFive{} at 5\,MB, \NumTaxiDOneCsTen{} at 10\,MB and
-\NumTaxiDOneCsTwenty{} at 20\,MB, while the best method without stratification stays at
-\NumTaxiDOneOtherFive, \NumTaxiDOneOtherTen{} and \NumTaxiDOneOtherTwenty, respectively---an improvement
-of \NumTaxiDOneGainFive$\times$, \NumTaxiDOneGainTen$\times$ and \NumTaxiDOneGainTwenty$\times$; at 50\,MB
-the gain is \NumTaxiDOneGainFifty$\times$, as predicted by Proposition~\ref{prop:rare} (the automatic
-$B$ then exceeds most bucket counts). For anchors occurring 100--999 times the gain is
-\NumTaxiDTwoGainTen$\times$ at 10\,MB and \NumTaxiDTwoGainFifty$\times$ at 50\,MB. The effect needs a
-sufficient budget: at 1\,MB, $B$ is a handful of rows and stratification is invisible. For frequent
-anchors ($10^4$--$10^6$ occurrences) the relative error of the stratified sample is
-\NumTaxiFreqPenaltyLo--\NumTaxiFreqPenaltyHi$\times$ that of the calibrated uniform sample, which
-reflects its smaller uniform share.
+stratified samplers guarantee each of them about $B$ sampled rows. Stratification and pair tables
+compete for the same memory, so we report both configurations. With C1 only, the mean relative error
+of \cs for anchors that occur 10--99 times is \NumTaxiDOneCsOneFive{} at 5\,MB, \NumTaxiDOneCsOneTen{} at
+10\,MB and \NumTaxiDOneCsOneTwenty{} at 20\,MB, while the best method without stratification stays at
+\NumTaxiDOneOtherFive, \NumTaxiDOneOtherTen{} and \NumTaxiDOneOtherTwenty---an improvement of
+\NumTaxiDOneGainOneFive$\times$, \NumTaxiDOneGainOneTen$\times$ and \NumTaxiDOneGainOneTwenty$\times$; at
+20\,MB and above such queries are answered essentially exactly, as predicted by
+Proposition~\ref{prop:rare} (the automatic $B$ then exceeds the bucket counts). With the default pair
+tables a quarter of the memory is no longer available for rows, $B$ is smaller, and the errors are
+\NumTaxiDOneCsFive, \NumTaxiDOneCsTen, \NumTaxiDOneCsTwenty{} and \NumTaxiDOneCsFifty{} at 5, 10, 20 and
+50\,MB, i.e., gains of \NumTaxiDOneGainFive$\times$, \NumTaxiDOneGainTen$\times$,
+\NumTaxiDOneGainTwenty$\times$ and \NumTaxiDOneGainFifty$\times$. For anchors occurring 100--999 times the
+gain appears only at the largest budget (\NumTaxiDTwoGainOneFifty$\times$ with C1,
+\NumTaxiDTwoGainFifty$\times$ with pair tables, at 50\,MB). The effect needs a sufficient budget: at
+1\,MB, $B$ is a handful of rows and stratification is invisible. For frequent anchors
+($10^4$--$10^6$ occurrences) the relative error of the stratified sample is
+\NumTaxiFreqPenaltyLo--\NumTaxiFreqPenaltyHi{} times that of the calibrated uniform sample; there is no
+systematic penalty.
 
-On MAWI and on the Zipf streams, stratification is neutral (the error of \cs relative to
-\textsc{RS+C2} on the two rarest decades is \NumAnchorNeutralMawiLo--\NumAnchorNeutralMawiHi{} on MAWI and
-\NumAnchorNeutralZipfFifteenLo--\NumAnchorNeutralZipfFifteenHi{} on Zipf with $\alpha=1.5$): the strata of
-IP addresses, ports, or of a 10\,000-value Zipf domain are all of comparable weight, and with tens of
+On MAWI stratification is neutral (the error of \textsc{RS+C2} relative to \cs on the two rarest
+decades is \NumAnchorNeutralMawiLo--\NumAnchorNeutralMawiHi), and on Zipf with $\alpha=1.5$ it varies
+between \NumAnchorNeutralZipfFifteenLo{} and \NumAnchorNeutralZipfFifteenHi{} without a trend: the strata
+of IP addresses, ports, or of a 10\,000-value Zipf domain are all of comparable weight, and with tens of
 thousands of non-empty buckets $B$ is between 2 and 30 rows, so the house stratum dominates.
 \omni does not benefit from its per-cell samples in either case: for the rarest decade at 10\,MB the
 relative error of its best variant is \NumOmniAnchorDOneTaxi{} on Taxi and \NumOmniAnchorDOneMawi{} on
@@ -238,25 +263,30 @@ Where full tuples repeat, aggregating them pays off. On MAWI (25\% distinct tupl
 \NumUssVsResMawiLo--\NumUssVsResMawiHi$\times$ more accurate than the reservoir, and with pair-table
 calibration \NumUssCalTwoVsResMawiLo--\NumUssCalTwoVsResMawiHi$\times$, the best result on that stream;
 the same holds, to a lesser degree, for the Zipf stream with $\alpha=1.5$ (49\% distinct tuples,
-\NumUssCalTwoVsResZipfFifteenLo--\NumUssCalTwoVsResZipfFifteenHi$\times$). On Taxi (97\% distinct tuples)
-aggregation has nothing to aggregate and only costs its per-entry overhead. The hold mode brings most of
-this advantage to the stratified sampler: on MAWI \csh is
-\NumCshVsCsMawiLo--\NumCshVsCsMawiHi$\times$ more accurate than row-mode \cs and within a factor
+\NumUssCalTwoVsResZipfFifteenLo--\NumUssCalTwoVsResZipfFifteenHi$\times$). On Taxi and DMV (97\% distinct
+tuples) aggregation has nothing to aggregate and only costs its per-entry overhead. The hold mode brings
+most of this advantage to the stratified sampler: on MAWI the error of row-mode \cs is
+\NumCshVsCsMawiLo--\NumCshVsCsMawiHi{} times that of \csh, which in turn is within a factor
 \NumCshVsUssCalTwoMawiHi{} of \textsc{USS+C2}, while keeping the rare-anchor behaviour of
-Section~\ref{sec:anchor} (Figure~\ref{fig:anchor}); on Taxi it pays \NumCshVsCsTaxiLo--\NumCshVsCsTaxiHi{}
-of the accuracy of row-mode \cs for the larger entries. Sample-and-hold has a larger variance than the
-probability-proportional-to-size sampling of USS for tuples of medium multiplicity, which explains the
-remaining gap.
+Section~\ref{sec:anchor} (Figure~\ref{fig:anchor}); on Taxi the larger entries of the hold mode cost
+accuracy (row-mode \cs has \NumCshVsCsTaxiLo--\NumCshVsCsTaxiHi{} times the error of \csh).
+Sample-and-hold has a larger variance than the probability-proportional-to-size sampling of USS for
+tuples of medium multiplicity, which explains the remaining gap.
 
 \paragraph{Which synopsis, then?} No single configuration is best everywhere, and the three ingredients
-are separable. \emph{Calibration} with pair tables helps on every non-uniform stream and should always
-be on unless $p$ is so large that $\binom p2$ increments per record are unaffordable. \emph{Aggregation}
-(USS or hold mode) should be used when records repeat. \emph{Stratification} should be used when queries
-drill down on rare values of attributes with few to a few thousand values. \csh with pair tables
-combines all three and is the best or within a factor \NumCshWorstFactor{} of the best row-sample variant
-on every stream and budget; relative to the best \omni variant it is
-\NumOmniAnyVsCshLo--\NumOmniAnyVsCshHi$\times$ more accurate on the non-uniform streams (geometric mean
-\NumOmniAnyVsCshGm$\times$).
+are separable. \emph{Calibration} helps on every non-uniform stream and should always be on, with pair
+tables as the default and triple tables when $p$ is small enough for $\binom p3$ increments per record.
+\emph{Aggregation} (USS or hold mode) should be used when records repeat. \emph{Stratification} should
+be used when queries drill down on rare values of attributes with few to a few thousand values, at the
+price of rows that would otherwise serve frequent queries. Table~\ref{tab:main} lists the combinations
+with triple tables as well: \textsc{USS+C3} is \NumResVsUssCalThreeLo--\NumResVsUssCalThreeHi$\times$ more
+accurate than the reservoir on the non-uniform streams and within a factor
+\NumUssCalThreeWorstFactor{} of the best row-sample variant on every stream and budget; \csh with
+triple tables, which adds stratification, is within a factor \NumCshThreeWorstFactor. Relative to the
+best \omni variant, the best calibrated row sample is
+\NumOmniAnyVsBestRowLo--\NumOmniAnyVsBestRowHi$\times$ more accurate (geometric mean
+\NumOmniAnyVsBestRowGm$\times$), and \csh with pair tables
+\NumOmniAnyVsCshLo--\NumOmniAnyVsCshHi$\times$ (\NumOmniAnyVsCshGm$\times$).
 
 \subsection{Update throughput and query latency}\label{sec:speed}
 
@@ -305,13 +335,18 @@ throughput: one core).}
 The main argument for \omni over Hydra is linear scaling in $p$. Row samples scale the same way---a row
 costs $p$ words---and Figure~\ref{fig:census} shows that the accuracy ranking is unchanged from 4 to 68
 attributes: at $p=68$ the reservoir is \NumCensusOmniAnyVsResSixtyEight$\times$ more accurate than the
-best \omni variant, and \textsc{RS+C2} another \NumCensusResVsCalTwoSixtyEight$\times$ more accurate than
-the reservoir. The pair tables are the component that does not scale linearly: at $p=68$ there are
+best \omni variant in this experiment (and \NumCensusJavaVsResSixtyEight$\times$ more accurate than the
+authors' code, whose per-cell samples shrink to a few dozen hashes), and \textsc{RS+C2} another
+\NumCensusResVsCalTwoSixtyEight$\times$ more accurate than the reservoir. The pair tables are the component that does not scale linearly: at $p=68$ there are
 2\,278 of them, each with only \NumCensusPairWidth{} counters at 10\,MB, and the update cost drops the
 throughput from \NumCensusTpCalOneSixtyEight{} (C1 only) to \NumCensusTpCalTwoSixtyEight{} million
 records/s, compared with \NumCensusTpOmniSixtyEight{} for \omni with the authors' parameters. For wide
 streams the tables should be restricted to the attribute pairs that queries are expected to combine; we
-have not explored such a selection.
+have not explored such a selection. Sampling the \emph{updates} is not a way out: if only a hashed
+fraction of 11\% of the records updates the tables (256 instead of 2\,278 increments per record) and the
+counts are scaled up, the error of two-predicate queries is $\NumCapKtwoSampled$ instead of
+$\NumCapKtwoExact$---no better than with C1 alone ($\NumCapKtwoCalOne$). Calibration lives on the anchors
+being exact.
 
 \subsection{Ablations and estimator validity}\label{sec:ablation}
 
@@ -344,7 +379,8 @@ contingency table of a query to \emph{all} available marginals by iterative prop
 instead of scaling to the lightest cell. With exact marginals this lowers the error by a further
 15--45\% in a prototype, but with hashed tables the estimated marginals of collided cells enter as if
 they were exact, and the result is unreliable (rows ``all anchors'' of Table~\ref{tab:ablation}:
-slightly better on Taxi, worse on MAWI). We therefore keep the single lightest anchor.
+better in some cells, markedly worse in others, in particular on MAWI). We therefore keep the single
+lightest anchor.
 
 \paragraph{Calibrated versus Horvitz--Thompson estimates.} Over all record-sampled queries at 10\,MB, the
 calibrated estimate of \cs has a \NumHtVsCalTaxi$\times$ (Taxi), \NumHtVsCalMawi$\times$ (MAWI) and

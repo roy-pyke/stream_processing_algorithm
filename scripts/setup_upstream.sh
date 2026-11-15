@@ -14,17 +14,21 @@ if [ ! -d ext/upstream/.git ]; then
 fi
 git -C "$ROOT/ext/upstream" checkout --quiet "$UPSTREAM_COMMIT"
 
-if [ -x ext/jdk/bin/javac ]; then
-  JAVA_HOME_LOCAL=$ROOT/ext/jdk
-elif command -v javac >/dev/null 2>&1; then
+local_javac=$(find ext/jdk -name javac -type f 2>/dev/null | head -1)
+if [ -n "$local_javac" ]; then
+  JAVA_HOME_LOCAL=$ROOT/$(dirname "$(dirname "$local_javac")")
+elif javac -version >/dev/null 2>&1; then   # (on macOS /usr/bin/javac may be a stub that fails)
   JAVA_HOME_LOCAL=$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")
+  [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/javac" ] && JAVA_HOME_LOCAL=$JAVA_HOME
 else
+  case "$(uname -s)" in Darwin) os=mac ;; *) os=linux ;; esac
+  case "$(uname -m)" in arm64|aarch64) arch=aarch64 ;; *) arch=x64 ;; esac
   mkdir -p ext/jdk-dl ext/jdk
   curl -sSL -o ext/jdk-dl/jdk.tar.gz \
-    "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jdk/hotspot/normal/eclipse"
-  tar -xzf ext/jdk-dl/jdk.tar.gz -C ext/jdk --strip-components=1
+    "https://api.adoptium.net/v3/binary/latest/21/ga/$os/$arch/jdk/hotspot/normal/eclipse"
+  tar -xzf ext/jdk-dl/jdk.tar.gz -C ext/jdk
   rm -rf ext/jdk-dl
-  JAVA_HOME_LOCAL=$ROOT/ext/jdk
+  JAVA_HOME_LOCAL=$ROOT/$(dirname "$(dirname "$(find ext/jdk -name javac -type f | head -1)")")
 fi
 echo "$JAVA_HOME_LOCAL" > ext/java_home.txt
 

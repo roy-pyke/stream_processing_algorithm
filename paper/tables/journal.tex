@@ -1,0 +1,18 @@
+\begin{tabular}{lrrrrrrrr}
+\toprule
+ & \multicolumn{4}{c}{journal-style queries ($k=1..9$)} & \multicolumn{4}{c}{record-sampled queries ($k\ge2$)} \\
+Method & 10 & 25 & 50 & 100 & 10 & 25 & 50 & 100 MB \\
+\midrule
+OmniSketch (journal cfg.) & 9.2e-5 & 5.7e-5 & 4.2e-5 & 3.0e-5 & 1.2e-4 & 7.9e-5 & 5.7e-5 & 4.2e-5 \\
+OmniSketch (PVLDB code) & 6.5e-4 & 6.0e-4 & 5.7e-4 & 5.6e-4 & 3.4e-4 & 3.0e-4 & 2.6e-4 & 2.5e-4 \\
+OmniSketch ($256{\times}2$, oracle) & 1.6e-4 & 1.1e-4 & 7.7e-5 & 4.8e-5 & 2.3e-4 & 1.6e-4 & 1.1e-4 & 5.5e-5 \\
+OmniSketch ($1024{\times}2$, oracle) & 2.6e-4 & 1.6e-4 & 9.4e-5 & 3.8e-5 & 4.7e-4 & 2.7e-4 & 1.6e-4 & 6.9e-5 \\
+\addlinespace[2pt]
+aSH (journal acct.) & 3.9e-5 & 2.7e-5 & 1.6e-5 & 1.0e-5 & 4.0e-5 & 2.3e-5 & 1.6e-5 & 1.0e-5 \\
+aSH (lean acct.) & 2.6e-5 & 1.6e-5 & 1.1e-5 & 6.6e-6 & 2.7e-5 & 1.6e-5 & 1.0e-5 & 6.9e-6 \\
+RS (journal acct.) & 3.4e-5 & 2.0e-5 & 1.4e-5 & 9.4e-6 & 3.1e-5 & 2.1e-5 & 1.4e-5 & 9.5e-6 \\
+\addlinespace[2pt]
+RS & 2.2e-5 & 1.4e-5 & 8.7e-6 & 4.8e-6 & 2.2e-5 & 1.3e-5 & 8.6e-6 & 5.0e-6 \\
+RS+C2 & 5.3e-6 & 3.1e-6 & 2.0e-6 & 1.2e-6 & 6.8e-6 & 4.1e-6 & 2.9e-6 & 1.7e-6 \\
+\bottomrule
+\end{tabular}

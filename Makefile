@@ -1,6 +1,8 @@
 CXX ?= g++
-CXXFLAGS ?= -O3 -march=native -std=c++17 -Wall -Wextra
-BIN = bin/bench bin/gen_synth bin/mkworkload bin/pcap2bin bin/jhash_test
+# Apple clang on arm64 wants -mcpu=native
+ARCHFLAG ?= $(shell uname -m | grep -q arm64 && echo -mcpu=native || echo -march=native)
+CXXFLAGS ?= -O3 $(ARCHFLAG) -std=c++17 -Wall -Wextra
+BIN = bin/bench bin/gen_synth bin/mkworkload bin/pcap2bin bin/jhash_test bin/bias_probe
 
 all: $(BIN)
 

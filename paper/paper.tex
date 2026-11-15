@@ -34,7 +34,7 @@ query time is the streaming counterpart of selectivity estimation. The state of 
 \omni, is a composite (``sketch-in-sketch'') synopsis: every cell of one Count-Min sketch per attribute
 stores a min-wise sample of record identifiers, and a query intersects the samples of the cells it
 addresses. We show that this design is dominated by samples of rows, explain why, and derive from the
-explanation a synopsis that is one to two orders of magnitude more accurate at equal memory.
+explanation synopses that are markedly more accurate at equal memory.
 \emph{Why sketch-in-sketch loses.} The intersection of per-cell samples is a uniform sample at the
 rate of the \emph{heaviest} cell a query touches, every sampled record is paid for once per attribute
 and sketch row, and the collision error of the prescribed parameterisation does not decrease with
@@ -44,21 +44,24 @@ unmodified and port bit-exactly to C++ (identical results on \NumValQueries{} qu
 also shows that the estimator returned by that code is not the one behind the published plots and that
 its hash functions map runs of about 1\,400 consecutive values to one cell. At equal memory a plain row
 reservoir has a \NumJavaVsResTenLo--\NumJavaVsResTenHi$\times$ lower error than the authors' code at the
-budgets of the original study and, on all non-uniform streams, a
+budgets of the original study (geometric mean \NumJavaVsResTenGm$\times$) and, on all non-uniform streams, a
 \NumOmniAnyVsResLo--\NumOmniAnyVsResHi$\times$ lower error than the best of \NumOmniFamilySize{} \omni
 variants under an oracle memory accounting.
 \emph{What to do instead.} A counter costs 32 bits and a sampled row hundreds, so we keep
 \emph{exact counters for hashed low-order marginals} and \emph{rows for everything else}, and
 calibrate the sample to the counters with a ratio estimator. With pair tables the variance of a
 two-predicate count drops from $f/\rho$ to at most $\min(f,N/w_2)/\rho$, and the error of the
-reservoir on the original workload falls by a further \NumCalTwoVsResLo--\NumCalTwoVsResHi$\times$
-(geometric mean \NumCalTwoVsResGm$\times$). Calibration is orthogonal to how rows are chosen; we combine
-it with a coordinated hash-stratified sampler whose thresholds are driven by the same counters---provably
-unbiased under a hard memory budget and within $\sqrt2$ of uniform sampling in standard error---which
-adds one to two orders of magnitude on queries anchored on rare values of low-cardinality attributes,
-and with sample-and-hold counting for streams with repeated records. The combination of the three,
-\csh, is \NumOmniAnyVsCshLo--\NumOmniAnyVsCshHi$\times$ more accurate than the best \omni variant on the
-non-uniform streams and ingests \NumTpCshLo--\NumTpCshHi{} million records per second on one laptop core.
+reservoir on the original workload falls by a further \NumCalTwoVsResLo--\NumCalTwoVsResHi$\times$ on
+the non-uniform streams (geometric mean \NumCalTwoVsResGm$\times$; \NumCalThreeVsResGm$\times$ with triple
+tables). Calibration is orthogonal to how rows are chosen. Combined with tuple aggregation it gains
+another factor when records repeat; combined with a coordinated hash-stratified sampler whose thresholds
+are driven by the same counters---provably unbiased under a hard memory budget and within $\sqrt2$ of
+uniform sampling in standard error---it lowers the error of queries anchored on rare values of
+low-cardinality attributes by a further \NumTaxiDOneGainTen--\NumTaxiDOneGainFifty$\times$ at 10--50\,MB.
+The best calibrated row sample is \NumOmniAnyVsBestRowLo--\NumOmniAnyVsBestRowHi$\times$ more accurate
+than the best \omni variant (geometric mean \NumOmniAnyVsBestRowGm$\times$) and, on five-attribute
+streams where Hydra can be run, on par with Hydra at a small fraction of its update cost. The calibrated
+samples ingest \NumTpCalTwoLo--\NumTpCalTwoHi{} million records per second on one laptop core.
 \end{abstract}
 
 \section{Introduction}
@@ -668,14 +671,19 @@ attributes (vendor, passenger count, rate code, pick-up and drop-off zone, payme
 and binned distance, fare, tip and duration). (iii)~\emph{MAWI}: the IPv4 packets of a 15-minute
 trans-Pacific backbone trace (2010-01-01, samplepoint~F) from the MAWI archive~\cite{mawi}, 11.33 million
 records with 10 attributes (addresses, ports, protocol, length, /16 prefixes, TTL, TCP flags).
-(iv)~\emph{Census}: the US Census 1990 extract from the UCI repository~\cite{census}, 2.46 million
+(iv)~\emph{DMV}: the vehicle, snowmobile and boat registrations of New York State~\cite{dmv}, the table
+commonly used to benchmark selectivity estimators~\cite{naru}; 12.54 million records in file order with 15
+categorical attributes (record type, registration class, city, state, ZIP code, county, model year, make,
+body type, fuel type, registration date, colour and three indicator flags; the unique vehicle
+identification number is dropped). Because of its size it is run at three budgets with three seeds.
+(v)~\emph{Census}: the US Census 1990 extract from the UCI repository~\cite{census}, 2.46 million
 records with 68 categorical attributes, used for the attribute-scaling experiment. The original
 evaluation used an SNMP trace (CRAWDAD Dartmouth campus, available after registration) and a CAIDA
 backbone trace (available on application); we did not have either at the time of writing. Taxi matches
 SNMP in size and number of attributes, and MAWI is a backbone packet trace like CAIDA, but the
 conclusions for those two traces remain to be confirmed (Section~\ref{sec:discussion}). The fraction of
-distinct full tuples is 97--100\% for Taxi and the synthetic streams with $\alpha\le1$, 81\% and 49\% for
-$\alpha=1.3$ and $1.5$, and 25\% for MAWI.
+distinct full tuples is 97--100\% for Taxi, DMV and the synthetic streams with $\alpha\le1$, 81\% and 49\%
+for $\alpha=1.3$ and $1.5$, and 25\% for MAWI.
 
 \paragraph{Workloads.} All queries are conjunctions of $k\in\{1,\dots,6\}$ equality predicates (at most
 5 for the synthetic streams) and are non-empty by construction. \emph{Record-sampled} queries follow
@@ -730,6 +738,12 @@ for group-by queries; none of them targets predicates on arbitrary attribute sub
 Structure-aware sampling~\cite{structure-aware} exploits the freedom in choosing which items to
 aggregate so that range sums are preserved; our pair tables pursue the same goal---exact low-order
 marginals---by keeping the marginals outside the sample.
+
+\paragraph{Selectivity estimation.} Counting the rows that satisfy a conjunction of predicates is the
+selectivity-estimation problem of query optimisers. Learned estimators such as Naru~\cite{naru} and
+DeepDB~\cite{deepdb} reach high accuracy on stored tables after multi-pass training; synopses for streams
+must be built in one pass with a per-record cost of a few hundred nanoseconds, which is the regime we
+study. Sampling combined with exact low-order statistics is a recurring recipe in that literature as well.
 
 \paragraph{Calibration.} Using known totals to improve sample-based estimates is classical in survey
 sampling~\cite{sarndal,calibration}; AQP\texttt{++}~\cite{aqppp} combines samples with precomputed
@@ -822,6 +836,9 @@ converters, the workload generator, and the scripts that produce every figure, t
 \bibitem{aqppp} J.~Peng, D.~Zhang, J.~Wang, and J.~Pei. AQP++: Connecting approximate query processing with aggregate precomputation for interactive analytics. In \emph{Proc.\ SIGMOD}, pages 1477--1492, 2018.
 \bibitem{taxi} NYC Taxi and Limousine Commission. TLC trip record data (yellow taxi, January 2019). \url{https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page}.
 \bibitem{mawi} K.~Cho, K.~Mitsuya, and A.~Kato. Traffic data repository at the WIDE project. In \emph{Proc.\ USENIX Annual Technical Conference, FREENIX Track}, 2000. Trace: \url{http://mawi.wide.ad.jp/mawi/samplepoint-F/2010/201001011400.html}.
+\bibitem{dmv} State of New York. Vehicle, snowmobile, and boat registrations. \url{https://data.ny.gov/Transportation/Vehicle-Snowmobile-and-Boat-Registrations/w4pv-hbkt} (retrieved November 2026).
+\bibitem{naru} Z.~Yang, E.~Liang, A.~Kamsetty, C.~Wu, Y.~Duan, X.~Chen, P.~Abbeel, J.~M. Hellerstein, S.~Krishnan, and I.~Stoica. Deep unsupervised cardinality estimation. \emph{PVLDB}, 13(3):279--292, 2019.
+\bibitem{deepdb} B.~Hilprecht, A.~Schmidt, M.~Kulessa, A.~Molina, K.~Kersting, and C.~Binnig. DeepDB: Learn from data, not from queries! \emph{PVLDB}, 13(7):992--1005, 2020.
 \bibitem{census} C.~Meek, B.~Thiesson, and D.~Heckerman. US Census Data (1990). UCI Machine Learning Repository. doi:10.24432/C5VP42.
 \end{thebibliography}
 

@@ -395,6 +395,12 @@ struct ASH {
 // Updating costs C(p,2) (+ C(p,3)) counter increments per record.
 struct MargCal {
     uint32_t p = 0, w2 = 0, w3 = 0, n2 = 0, n3 = 0;
+    // Sampled tables: only a hash-selected fraction `beta` of the records updates the tables and
+    // counts are scaled by 1/beta. This caps the table work per record for wide streams; the
+    // anchors are then estimates from a Bernoulli(beta) sample of the stream instead of exact counts.
+    double beta = 1.0, inv_beta = 1.0;
+    uint32_t bthr = UINT32_MAX;
+    uint64_t bseed = 0;
     std::vector<uint64_t> seed2, seed3;
     std::vector<uint32_t> c2, c3;       // n2*w2, n3*w3 counters
     std::vector<double> W2, V2, W3, V3; // query-time: weight and variance mass of the sample per cell
@@ -414,7 +420,17 @@ struct MargCal {
         return 32ull * w2 * npairs(p) + 32ull * w3 * ntriples(p);
     }
     uint64_t mem_bits() const { return 32ull * (c2.size() + c3.size()); }
-    void init(uint32_t p_, uint32_t w2_, uint32_t w3_, uint64_t seed) { // before the first add()
+    // Fraction of records that may update the tables if at most `cap` table increments per record
+    // are allowed on average (cap <= 0: no limit).
+    static double beta_for_cap(uint32_t p, uint32_t w2, uint32_t w3, double cap) {
+        double per = (w2 ? (double)npairs(p) : 0.0) + (w3 ? (double)ntriples(p) : 0.0);
+        return cap > 0 && per > cap ? cap / per : 1.0;
+    }
+    void init(uint32_t p_, uint32_t w2_, uint32_t w3_, uint64_t seed, double beta_ = 1.0) { // before the first add()
+        beta = beta_;
+        inv_beta = 1.0 / beta_;
+        bthr = beta_ >= 1.0 ? UINT32_MAX : (uint32_t)(beta_ * 4294967296.0);
+        bseed = mix64(seed ^ 0x51ED270B0A1D3F27ULL);
         p = p_;
         w2 = w2_;
         w3 = w3_;
@@ -446,7 +462,8 @@ struct MargCal {
         h = mix64(h ^ ((uint64_t)vc * 0xC2B2AE3D27D4EB4FULL));
         return (size_t)ti * w3 + (size_t)(((h >> 32) * (uint64_t)w3) >> 32);
     }
-    inline void add(const uint32_t* rec) {
+    inline void add(uint64_t rid, const uint32_t* rec) {
+        if (beta < 1.0 && (uint32_t)(mix64(rid ^ bseed) >> 32) >= bthr) return;
         if (w2)
             for (uint32_t a = 0; a + 1 < p; a++)
                 for (uint32_t b = a + 1; b < p; b++) c2[cell2(a, b, rec[a], rec[b])]++;
@@ -482,18 +499,18 @@ struct MargCal {
     inline void pair_stat(const Query& q, size_t i, size_t j, double& n, double& W) const {
         if (q.attrs[i] > q.attrs[j]) std::swap(i, j);
         size_t c = cell2(q.attrs[i], q.attrs[j], q.vals[i], q.vals[j]);
-        n = c2[c];
+        n = c2[c] * inv_beta;
         W = W2[c];
     }
     inline void triple_stat(const Query& q, size_t i, size_t j, size_t l, double& n, double& W) const {
         size_t x[3] = {i, j, l};
         std::sort(x, x + 3, [&](size_t a, size_t b) { return q.attrs[a] < q.attrs[b]; });
         size_t c = cell3(q.attrs[x[0]], q.attrs[x[1]], q.attrs[x[2]], q.vals[x[0]], q.vals[x[1]], q.vals[x[2]]);
-        n = c3[c];
+        n = c3[c] * inv_beta;
         W = W3[c];
     }
     // If a pair/triple cell addressed by the query is lighter than nb, make it the anchor.
-    inline void anchor(const Query& q, uint32_t& nb, double& Wa, double& Va) const {
+    inline void anchor(const Query& q, double& nb, double& Wa, double& Va) const {
         size_t k = q.attrs.size();
         if (!on() || k < 2 || k > 16) return;
         uint32_t idx[16];
@@ -503,7 +520,7 @@ struct MargCal {
             for (size_t i = 0; i + 1 < k; i++)
                 for (size_t j = i + 1; j < k; j++) {
                     size_t c = cell2(q.attrs[idx[i]], q.attrs[idx[j]], q.vals[idx[i]], q.vals[idx[j]]);
-                    if (c2[c] < nb) nb = c2[c], Wa = W2[c], Va = V2[c];
+                    if (c2[c] * inv_beta < nb) nb = c2[c] * inv_beta, Wa = W2[c], Va = V2[c];
                 }
         if (w3 && k >= 3)
             for (size_t i = 0; i + 2 < k; i++)
@@ -511,7 +528,7 @@ struct MargCal {
                     for (size_t l = j + 1; l < k; l++) {
                         size_t c = cell3(q.attrs[idx[i]], q.attrs[idx[j]], q.attrs[idx[l]], q.vals[idx[i]],
                                          q.vals[idx[j]], q.vals[idx[l]]);
-                        if (c3[c] < nb) nb = c3[c], Wa = W3[c], Va = V3[c];
+                        if (c3[c] * inv_beta < nb) nb = c3[c] * inv_beta, Wa = W3[c], Va = V3[c];
                     }
     }
 };
@@ -647,7 +664,7 @@ struct CoStrata {
         uint64_t fixed = 32ull * p * w + cal_bits;
         return bits > fixed ? (bits - fixed) / bits_per_row(p) : 0;
     }
-    void enable_marginals(uint32_t w2, uint32_t w3) { mc.init(p, w2, w3, useed ^ 0xC2B2AE3D27D4EB4FULL); } // before the first insert
+    void enable_marginals(uint32_t w2, uint32_t w3, double beta = 1.0) { mc.init(p, w2, w3, useed ^ 0xC2B2AE3D27D4EB4FULL, beta); } // before the first insert
     inline double sfun(double n) const { return gamma == 1.0 ? n : std::pow(n, gamma); }
     inline double nstar_slot(uint64_t s) const {
         uint32_t nmin = UINT32_MAX;
@@ -664,7 +681,7 @@ struct CoStrata {
             c++;
             nmin = std::min(nmin, c);
         }
-        if (mc.on()) mc.add(rec);
+        if (mc.on()) mc.add(rid, rec);
         double ns = sfun((double)nmin);
         if (lf > 0) {
             double g = (double)N / (lf * (double)E);
@@ -790,7 +807,7 @@ struct CoStrata {
         }
         // lightest stratum touched by the query
         size_t best = 0;
-        uint32_t nb = UINT32_MAX;
+        double nb = 1e300;
         for (size_t k = 0; k < q.attrs.size(); k++) {
             size_t b = (size_t)q.attrs[k] * w + bucket_of(q.vals[k], hseed[q.attrs[k]], w);
             if (cnt[b] < nb) nb = cnt[b], best = b;
@@ -836,11 +853,11 @@ struct USSC {
         uint64_t fixed = 32ull * p * w + cal_bits;
         return bits > fixed ? (bits - fixed) / USS::bits_per_row(p) : 0;
     }
-    void enable_marginals(uint32_t w2, uint32_t w3) { mc.init(p, w2, w3, mseed); }
+    void enable_marginals(uint32_t w2, uint32_t w3, double beta = 1.0) { mc.init(p, w2, w3, mseed, beta); }
     uint64_t mem_bits() const { return uss.mem_bits() + 32ull * cnt.size() + mc.mem_bits(); }
     inline void insert(uint64_t rid, const uint32_t* rec) {
         for (uint32_t a = 0; a < p; a++) cnt[(size_t)a * w + bucket_of(rec[a], hseed[a], w)]++;
-        if (mc.on()) mc.add(rec);
+        if (mc.on()) mc.add(rid, rec);
         uss.insert(rid, rec);
     }
     void finalize() {
@@ -855,7 +872,7 @@ struct USSC {
     double estimate(const Query& q) const {
         double num = uss.estimate(q);
         size_t best = 0;
-        uint32_t nb = UINT32_MAX;
+        double nb = 1e300;
         for (size_t k = 0; k < q.attrs.size(); k++) {
             size_t b = (size_t)q.attrs[k] * w + bucket_of(q.vals[k], hseed[q.attrs[k]], w);
             if (cnt[b] < nb) nb = cnt[b], best = b;
@@ -916,7 +933,7 @@ struct CoStrataH {
         uint64_t fixed = 32ull * p * w + cal_bits;
         return bits > fixed ? (bits - fixed) / bits_per_entry(p) : 0;
     }
-    void enable_marginals(uint32_t w2, uint32_t w3) { mc.init(p, w2, w3, useed ^ 0xC2B2AE3D27D4EB4FULL); }
+    void enable_marginals(uint32_t w2, uint32_t w3, double beta = 1.0) { mc.init(p, w2, w3, useed ^ 0xC2B2AE3D27D4EB4FULL, beta); }
     static inline double prio(uint32_t x) { return ((double)x + 0.5) * (1.0 / 4294967296.0); }
     inline uint64_t hkey(const uint32_t* r) const {
         uint64_t h = tseed;
@@ -939,7 +956,7 @@ struct CoStrataH {
             x++;
             nmin = std::min(nmin, x);
         }
-        if (mc.on()) mc.add(rec);
+        if (mc.on()) mc.add(rid, rec);
         double ns = (double)nmin;
         if (lf > 0) {
             double g = (double)N / (lf * (double)E);
@@ -1042,7 +1059,7 @@ struct CoStrataH {
             A += evar[s];
         }
         size_t best = 0;
-        uint32_t nb = UINT32_MAX;
+        double nb = 1e300;
         for (size_t k = 0; k < q.attrs.size(); k++) {
             size_t b = (size_t)q.attrs[k] * w + bucket_of(q.vals[k], hseed[q.attrs[k]], w);
             if (cnt[b] < nb) nb = cnt[b], best = b;

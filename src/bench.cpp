@@ -19,7 +19,9 @@
 //                  exponent gamma; phi2 / phi3 > 0 add pair / triple counter tables using that
 //                  fraction of the budget; rake = 1 calibrates to all anchors of a query (IPF)
 //                  instead of the lightest one; index = 1 builds a query-time bucket index
-//                  (spec: cs:w:lf:gamma:phi2:phi3:rake:index)
+//                  (spec: cs:w:lf:gamma:phi2:phi3:rake:index:cap); cap > 0 limits the average
+//                  number of table increments per record by updating the tables for a hashed
+//                  fraction of the records only (sampled tables)
 //   csh:w:lf       CoStrata-H: CoStrata over distinct tuples with sample-and-hold counts
 // Output columns of "acc": name,spec,mem,seed,query,est,ht,sd,cm. For OmniSketch specs the last
 // three hold: the Theorem 3.3 estimate (bound when the intersection is small), |S_cap|, n_max;
@@ -251,7 +253,9 @@ int main(int argc, char** argv) {
                 uint64_t M = CoStrata::rows_for_budget(bits, d.p, w, MargCal::bits_for(d.p, w2, w3));
                 if (M < 16) { fprintf(stderr, "budget too small for %s\n", sp.raw.c_str()); continue; }
                 CoStrata s(d.p, w, M, lf, gamma, seed * 7919 + 4);
-                if (w2 || w3) s.enable_marginals(w2, w3);
+                double cap = sp.a.size() > 7 ? sp.a[7] : 0.0; // max. table increments per record (0: no limit)
+                double beta = MargCal::beta_for_cap(d.p, w2, w3, cap);
+                if (w2 || w3) s.enable_marginals(w2, w3, beta);
                 t_ing = ingest(s, d);
                 s.finalize();
                 bool use_index = sp.a.size() > 6 && sp.a[6] > 0; // query-time bucket index
@@ -267,9 +271,9 @@ int main(int argc, char** argv) {
                 t_q = now_sec() - t0;
                 used_bits = s.mem_bits();
                 char buf[160];
-                snprintf(buf, sizeof buf, "w=%u;w2=%u;w3=%u;M=%llu;held=%llu;B=%.4g;compactions=%llu;E=%llu;index_mb=%.2f", w, w2, w3,
+                snprintf(buf, sizeof buf, "w=%u;w2=%u;w3=%u;M=%llu;held=%llu;B=%.4g;compactions=%llu;E=%llu;index_mb=%.2f;beta=%.4g", w, w2, w3,
                          (unsigned long long)M, (unsigned long long)s.size, s.Bcur, (unsigned long long)s.compactions,
-                         (unsigned long long)s.E, (double)s.index_bits() / 8e6);
+                         (unsigned long long)s.E, (double)s.index_bits() / 8e6, beta);
                 info = buf;
             } else {
                 fprintf(stderr, "unknown spec %s\n", sp.raw.c_str());
@@ -339,7 +343,8 @@ int main(int argc, char** argv) {
                     uint32_t w2, w3;
                     marg_widths(sp, 3, bits, d.p, w2, w3);
                     CoStrata s(d.p, w, CoStrata::rows_for_budget(bits, d.p, w, MargCal::bits_for(d.p, w2, w3)), lf, gamma, seed + r);
-                    if (w2 || w3) s.enable_marginals(w2, w3);
+                    double cap = sp.a.size() > 7 ? sp.a[7] : 0.0;
+                    if (w2 || w3) s.enable_marginals(w2, w3, MargCal::beta_for_cap(d.p, w2, w3, cap));
                     ts.push_back(ingest(s, d));
                     info = "compactions=" + std::to_string(s.compactions);
                 }

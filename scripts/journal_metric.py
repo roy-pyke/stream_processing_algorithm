@@ -39,6 +39,22 @@ for mem in (10.0, 100.0):
     print(s.pivot(index="method", columns="k", values="zero").to_string(float_format=lambda v: "%.2f" % v))
 print("\nmean truth by k:", a[a.method == "res"].groupby("k").truth.mean().round(1).to_dict())
 
+import json
+s10 = a[a.mem == 10.0].set_index(["method", "k"])
+low = [1, 2, 3, 4]
+high = [k for k in sorted(a.k.unique()) if k >= 6]
+ratio = lambda m, col: [float(s10.loc[("omniv", k), col] / s10.loc[(m, k), col]) for k in low]
+num = dict(
+    ash_abs_lo=min(ratio("ash", "ae")), ash_abs_hi=max(ratio("ash", "ae")),
+    res_abs_lo=min(ratio("res", "ae")), res_abs_hi=max(ratio("res", "ae")),
+    omni_rel_high=float(np.mean([s10.loc[("omniv", k), "re"] for k in high])),
+    ash_rel_high=float(np.mean([s10.loc[("ash", k), "re"] for k in high])),
+    res_rel_high=float(np.mean([s10.loc[("res", k), "re"] for k in high])),
+    omni_zero_high=float(np.mean([s10.loc[("omniv", k), "zero"] for k in high])),
+    truth_k1=float(s10.loc[("res", 1), "truth"]), truth_high=float(np.mean([s10.loc[("res", k), "truth"] for k in high])),
+    share_high=float((w.k >= 5).mean()))
+json.dump(num, open("results/journal_numbers.json", "w"), indent=1)
+
 lab = {"omniv": "OmniSketch (journal cfg.)", "ash": "aSH (journal acct.)", "resj": "RS (journal acct.)", "res": "RS",
        "cs:0:1e9:1:0.25": "RS+C2"}
 os.makedirs("paper/tables", exist_ok=True)

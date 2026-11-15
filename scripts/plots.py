@@ -20,6 +20,7 @@ os.makedirs("paper/tables", exist_ok=True)
 RSC1, RSC2, RSC3 = "cs:0:1e9", "cs:0:1e9:1:0.25", "cs:0:1e9:1:0.15:0.15"
 CS1, CS2, CSH = "cs", "cs:0:1:1:0.25", "csh:0:1:0.25"
 USSC1, USSC2 = "ussc", "ussc:0:0.25"
+USSC3, CSH3 = "ussc:0:0.15:0.15", "csh:0:1:0.15:0.15"
 # Fixed entity -> (label, colour, marker, linestyle). Colour follows the method in every figure.
 STYLE = {
     "omnijs":   ("OmniSketch (authors' code)", "#e87ba4", "X", "--"),
@@ -40,6 +41,8 @@ STYLE = {
     CS1:        ("CoStrata (C1)",              "#7fb4ec", "o", ":"),
     CS2:        ("CoStrata",                   "#2a78d6", "o", "-"),
     CSH:        ("CoStrata-H",                 "#12a0b0", "h", "-"),
+    USSC3:      ("USS+C3",                     "#b87a00", "v", "--"),
+    CSH3:       ("CoStrata-H (C3)",            "#0b6f7a", "h", "--"),
 }
 OMNI_GRID = ["omnil", "omni:28:3", "omni:64:2", "omni:256:2", "omni:1024:2", "omni:256:3", "omni:1024:1", "omni:4096:1", "omni:4096:2"]
 OMNI_FAMILY = ["omnijs", "omnip", "omniv"] + OMNI_GRID
@@ -161,7 +164,7 @@ fig.savefig("paper/figs/nae_vs_mem.pdf", bbox_inches="tight")
 plt.close(fig)
 
 # ---------------------------------------------------------------- Fig: relative error by anchor frequency
-order2 = ["omnibest", "res", RSC2, USSC2, CS2, CSH]
+order2 = ["omnibest", "res", RSC2, USSC2, CS1, CS2, CSH]
 panels = [("taxi", 1.0), ("taxi", 10.0), ("mawi", 10.0), ("zipf15_5M", 10.0)]
 fig, axes = plt.subplots(1, 4, figsize=(7.0, 2.25), sharey=True)
 xl = [r"$10^1$", r"$10^2$", r"$10^3$", r"$10^4$", r"$10^5$", r"$10^6$"]
@@ -176,13 +179,13 @@ for ax, (ds, mem) in zip(axes, panels):
 fig.supxlabel("frequency of the query's rarest predicate (decade)", fontsize=8, y=0.04)
 axes[0].set_ylabel("mean relative error")
 h, l = axes[0].get_legend_handles_labels()
-fig.legend(h, l, loc="upper center", ncol=6, frameon=False, bbox_to_anchor=(0.5, 1.1))
+fig.legend(h, l, loc="upper center", ncol=4, frameon=False, bbox_to_anchor=(0.5, 1.2))
 fig.tight_layout()
 fig.savefig("paper/figs/anchor.pdf", bbox_inches="tight")
 plt.close(fig)
 
 # ---------------------------------------------------------------- Table: main accuracy table at 1 and 10 MB
-tab_methods = ["omnijs", "omnip", "omniv", "omnibest", "hydra", "ash", "res", "uss", RSC1, RSC2, RSC3, USSC2, CS2, CSH]
+tab_methods = ["omnijs", "omnip", "omniv", "omnibest", "hydra", "ash", "res", "uss", RSC1, RSC2, RSC3, USSC2, USSC3, CS2, CSH, CSH3]
 with open("paper/tables/main_acc.tex", "w") as f:
     f.write("\\begin{tabular}{l" + "r" * len(DATASETS) + "}\n\\toprule\n")
     f.write("Method & " + " & ".join(DS_LABEL[d] for d in DATASETS) + " \\\\\n\\midrule\n")
@@ -197,14 +200,14 @@ with open("paper/tables/main_acc.tex", "w") as f:
                 txt = fmt_sci(v[0]) if len(v) else "--"
                 cells.append(f"\\textbf{{{txt}}}" if len(v) and v[0] <= best * 1.0001 else txt)
             f.write(tex_label(key) + " & " + " & ".join(cells) + " \\\\\n")
-            if key in ("omnibest", "ash", "uss"):
+            if key in ("omnibest", "ash", "uss", RSC3, USSC3):
                 f.write("\\addlinespace[2pt]\n")
         if mem == 1.0:
             f.write("\\midrule\n")
     f.write("\\bottomrule\n\\end{tabular}\n")
 
 # ---------------------------------------------------------------- Table: NAE by number of predicates (10 MB)
-byk_methods = ["omnijs", "omnibest", "res", "uss", RSC1, RSC2, RSC3, USSC2, CS2, CSH]
+byk_methods = ["omnijs", "omnibest", "res", "uss", RSC1, RSC2, RSC3, USSC2, USSC3, CS2, CSH, CSH3]
 with open("paper/tables/by_k.tex", "w") as f:
     f.write("\\begin{tabular}{l" + "r" * 12 + "}\n\\toprule\n")
     f.write(" & \\multicolumn{6}{c}{Taxi, number of predicates $k$} & \\multicolumn{6}{c}{MAWI, number of predicates $k$} \\\\\n")
@@ -239,6 +242,7 @@ put("JavaVsResAll", col(PA, "omnijs") / PA["res"], 0)
 ten = [i for i in P.index if i[1] >= 10]            # the budgets of the original study
 put("JavaVsResTen", (col(P, "omnijs") / P["res"]).loc[ten])
 put("JavaVsResTenNonUnif", (col(P, "omnijs") / P["res"]).loc[[i for i in ten if i[0] != "unif_5M"]])
+put("JavaVsResTenSyn", (col(P, "omnijs") / P["res"]).loc[[i for i in ten if i[0].startswith(("zipf", "unif"))]], 0)
 for ds, tag in [("mawi", "Mawi"), ("taxi", "Taxi"), ("dmv", "Dmv")]:
     if ds in DATASETS:
         put("JavaVsResTen" + tag, (col(P, "omnijs") / P["res"]).loc[[i for i in ten if i[0] == ds]])
@@ -266,6 +270,10 @@ if "hydra" in P.columns:
     hrun = acc[acc.method == "hydra"]
     if len(hrun):
         NUM["TpHydraLo"], NUM["TpHydraHi"] = f"{1e3 / hrun.ns_per_rec.max():.2f}", f"{1e3 / hrun.ns_per_rec.min():.2f}"
+if os.path.exists("results/time/hydra.log"):
+    for ln in open("results/time/hydra.log"):
+        if ln.startswith("HRUN,"):
+            NUM["TpHydraIdle"] = f"{1e3 / float(ln.split(',')[7]):.2f}"
 # journal-version baselines on the main streams
 put("AshVsRes", col(P, "ash") / P["res"], 2);       put("AshLeanVsRes", col(P, "ashl") / P["res"], 2)
 put("ResjVsRes", col(P, "resj") / P["res"], 2)
@@ -297,7 +305,18 @@ put("CsVsCalTwo", col(P, CS2) / col(P, RSC2), 2)
 put("CsVsRes", (P["res"] / col(P, CS2)).loc[nonunif], 1)
 put("CshVsCalTwo", col(P, CSH) / col(P, RSC2), 2)
 # best row-sample variant versus the reservoir
-rowfam = [c for c in (RSC2, RSC3, USSC2, CS2, CSH) if c in P.columns]
+rowfam = [c for c in (RSC2, RSC3, USSC2, USSC3, CS2, CSH, CSH3) if c in P.columns]
+for key_, tag_ in [(CSH3, "CshThree"), (USSC3, "UssCalThree")]:
+    if key_ in P.columns:
+        put("OmniAnyVs" + tag_, (P["omnibest"] / P[key_]).loc[nonunif])
+        put("ResVs" + tag_, (P["res"] / P[key_]).loc[nonunif], 1)
+        NUM[tag_ + "WorstFactor"] = fnum((P[key_] / P[rowfam].min(axis=1)).loc[nonunif].max(), 1)
+        if "hydra" in P.columns:
+            hyi_ = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0] != "unif_5M"]
+            put("HydraVs" + tag_, (P["hydra"] / P[key_]).loc[hyi_], 2)
+        for ds_, t2 in [("mawi", "Mawi"), ("taxi", "Taxi"), ("dmv", "Dmv"), ("zipf15_5M", "ZipfFifteen")]:
+            if ds_ in DATASETS:
+                put("ResVs" + tag_ + t2, (P["res"] / P[key_]).loc[ds_], 1)
 if rowfam:
     put("BestRowVsRes", (P["res"] / P[rowfam].min(axis=1)).loc[nonunif], 1)
     put("OmniAnyVsBestRow", (P["omnibest"] / P[rowfam].min(axis=1)).loc[nonunif], 0)
@@ -314,6 +333,7 @@ if cmc:
     put("CmVsCalTwo", (g2.cm3 / g2.nae3p).loc[[i for i in g2.index if i[0] != "unif_5M"]], 1)
 
 # rare anchors on Taxi
+BESTGAIN = []
 for mem, tag in [(5.0, "Five"), (10.0, "Ten"), (20.0, "Twenty"), (50.0, "Fifty")]:
     t = m[(m.dataset == "taxi") & (m.mem == mem)].set_index("method")
     if CS2 not in t.index:
@@ -327,6 +347,14 @@ for mem, tag in [(5.0, "Five"), (10.0, "Ten"), (20.0, "Twenty"), (50.0, "Fifty")
         NUM[f"TaxiD{dn}Other{tag}"] = f"{o:.2g}"
         NUM[f"TaxiD{dn}Gain{tag}"] = fnum(o / c, 0) if o / c >= 10 else fnum(o / c, 1)
         NUM[f"TaxiD{dn}Res{tag}"] = f"{t.loc['res', f'mre1_d{d}']:.2g}"
+        if CS1 in t.index:
+            c1 = t.loc[CS1, f"mre1_d{d}"]
+            NUM[f"TaxiD{dn}CsOne{tag}"] = f"{c1:.2g}"
+            NUM[f"TaxiD{dn}GainOne{tag}"] = fnum(o / c1, 0) if o / c1 >= 10 else fnum(o / c1, 1)
+            BESTGAIN.append(o / c1)
+        BESTGAIN.append(o / c)
+if BESTGAIN:
+    NUM["TaxiAnchorBestGain"] = fnum(max(BESTGAIN), 0)
 tt = m[m.dataset == "taxi"].pivot_table(index="mem", columns="method", values=["mre1_d4", "mre1_d5"])
 if CS2 in tt["mre1_d4"].columns:
     rr = pd.concat([tt["mre1_d4"][CS2] / tt["mre1_d4"][RSC2], tt["mre1_d5"][CS2] / tt["mre1_d5"][RSC2]])
@@ -405,6 +433,14 @@ if os.path.exists("results/agg_journal.csv"):
     R3 = jm[jm.dataset == "jz13p9-vldbj"].pivot_table(index="mem", columns="method", values="mre3")
     for key, tag in [("omniv", "Omni"), ("ash", "Ash"), ("res", "Res"), ("resj", "Resj"), (RSC2, "CalTwo")]:
         NUM[f"JSMre{tag}"] = f"{R3.loc[10.0, key]:.2f}" if key in R3.columns else "??"
+    if os.path.exists("results/journal_numbers.json"):
+        jn = json.load(open("results/journal_numbers.json"))
+        NUM["JKAshAbsLo"], NUM["JKAshAbsHi"] = fnum(jn["ash_abs_lo"], 1), fnum(jn["ash_abs_hi"], 1)
+        NUM["JKResAbsLo"], NUM["JKResAbsHi"] = fnum(jn["res_abs_lo"], 1), fnum(jn["res_abs_hi"], 1)
+        NUM["JKOmniRelHigh"], NUM["JKAshRelHigh"], NUM["JKResRelHigh"] = (f"{jn[k_]:.2f}" for k_ in ("omni_rel_high", "ash_rel_high", "res_rel_high"))
+        NUM["JKOmniZeroHigh"] = f"{100 * jn['omni_zero_high']:.0f}"
+        NUM["JKTruthHigh"] = f"{jn['truth_high']:.1f}"
+        NUM["JKShareHigh"] = f"{100 * jn['share_high']:.0f}"
     J3 = jm[jm.dataset == "jz13p9-vldbj"].pivot_table(index="mem", columns="method", values="nae3")
     J0 = jm[jm.dataset == "jz13p9_5M"].pivot_table(index="mem", columns="method", values="nae0m")
     note("journal setting, journal-style workload (NAE, all k)", J3)
@@ -569,6 +605,14 @@ if os.path.exists("results/time/time.log"):
             NUM[f"CensusResVsCalTwo{tag}"] = g_("res", RSC2)
             NUM[f"CensusResVsCs{tag}"] = g_("res", CS2)
             NUM[f"CensusResVsCalOne{tag}"] = g_("res", RSC1)
+
+# sampled pair tables on the 68-attribute stream (negative result)
+if os.path.exists("results/agg_census_cap.csv"):
+    cc = pd.read_csv("results/agg_census_cap.csv").groupby("method").nae0_k2.mean()
+    for key, tag in [(RSC1, "CalOne"), (RSC2, "Exact"), (RSC2 + ":0:0:0:256", "Sampled")]:
+        if key in cc.index:
+            e = int(np.floor(np.log10(cc[key])))
+            NUM[f"CapKtwo{tag}"] = f"{cc[key] / 10 ** e:.1f}\\cdot10^{{{e}}}"
 
 # ====================================================================== ablations (10 MB)
 if os.path.exists("results/agg_abl.csv"):

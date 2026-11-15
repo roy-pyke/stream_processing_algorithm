@@ -84,3 +84,8 @@ python scripts/check_paper.py    # static checks of the LaTeX sources (macros, r
 ```
 
 `ext/` (upstream checkouts, JDK, class files), `data/` and `work/` are not tracked.
+
+The scripts run on Linux and macOS (Apple silicon included). Accuracy results depend only on the data,
+the workloads and the seeds, not on the hardware; across platforms they agree statistically but need not be
+bit-identical, because a few decisions go through the platform's `log`/`pow`. Timing results
+(`scripts/run_timing.sh`) must be taken on an otherwise idle machine.

@@ -13,4 +13,4 @@ for a in 1.0 1.3 1.5; do
   [ -s data/$n.bin ] || "$JH/bin/java" -Xmx4g -cp "$CP" omniVLDB.Harness gen data/$n.bin 5000000 5 $a
   bin/mkworkload data/$n.bin work/$n.wl 200 5 4242 2>/dev/null
 done
-md5sum data/jzipf*.bin > results/validation/md5_jzipf.txt
+(md5sum data/jzipf*.bin 2>/dev/null || md5 -r data/jzipf*.bin) > results/validation/md5_jzipf.txt
