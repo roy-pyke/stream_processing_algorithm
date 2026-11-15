@@ -59,7 +59,7 @@ for log in sorted(glob.glob(os.path.join(res_dir, "*.log"))):
         err = np.abs(est - truth)
         rel = err / truth
         row = dict(dataset=g.ds.iloc[0], method=method, mem=float(g.mem.iloc[0]), seed=int(g.seed.iloc[0]), **runs[method])
-        for kind in (0, 1):
+        for kind in (0, 1, 2, 3):
             sel = (w.kind == kind).to_numpy()
             if sel.sum() == 0:
                 continue

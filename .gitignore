@@ -12,11 +12,18 @@ work/
 
 # raw per-run experiment logs (large; aggregated CSVs are tracked)
 results/acc/
+results/abl/
+results/census/
+results/journal/
 results/bias/
+results/validation/java/
+results/validation/cpp/
 results/colab/results/
 *.zip
 
 # third-party papers and code (copyrighted; not redistributed)
 refs/
+# upstream OmniSketch checkout, JDK and class files (scripts/setup_upstream.sh)
+ext/
 *.pdf
 !paper/figs/*.pdf
