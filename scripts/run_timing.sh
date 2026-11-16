@@ -35,4 +35,9 @@ for ds in taxi mawi; do
     $PIN ./bin/bench acc data/$ds.bin work/$ds.wl /dev/null $ds $mem 1 res uss omnijs omnip omniv omni:256:2 omni:1024:2 cs:0:1e9:1:0.25 cs:0:1e9:1:0.25:0:0:1 cs cs:0:1:1:0.25 csh:0:1:0.25 coco cococ:0:0.25 >> "$Q"
   done
 done
+# Hydra (the authors' adaptation, Java): throughput on the 5-attribute Zipf stream at 10 MB
+if [ -s ext/java_home.txt ] && [ -s ext/build/cp.txt ]; then
+  "$(cat ext/java_home.txt)/bin/java" -Xmx6g -cp "$(cat ext/build/cp.txt)" omniVLDB.Harness hydra data/zipf13_5M.bin \
+    work/zipf13_5M.wl /dev/null zipf13_5M 1 10 > results/time/hydra.log
+fi
 echo "timing done"

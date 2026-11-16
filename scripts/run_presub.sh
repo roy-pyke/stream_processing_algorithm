@@ -8,6 +8,8 @@
 #   merge  (#22) synopses built on 2..16 parts of the stream and merged
 #   pairs  (#20) pair-table selection on Census, p = 16/32/68, random and template workloads
 #   dmv    the configurations of "main" that are new (CocoSketch, index charged) on DMV: 3 budgets, 3 seeds
+#   dmvfull the full DMV matrix (7 budgets, 5 seeds) for every method of the main table: those of
+#          run_accuracy.sh, the triple-table variants, CocoSketch and the index-charged runs (#24)
 #   ci     (#18) the methods of the coverage table again, with the anchor columns that the
 #          two-sided intervals need (estimates identical to results/acc)
 #   timing update throughput of the new configurations (sequential, one job; run on an idle machine)
@@ -81,6 +83,14 @@ if [ "$PART" = dmv ] || [ "$PART" = all ]; then
   M="coco cococ cococ:0:0.25 cs/ix=2 cs:0:1:1:0.25/ix=2 cs:0:1e9:1:0.25/ix=2"
   for mem in 1 10 50; do for seed in 1 2 3; do
     echo "dmv dmv work/dmv.wl $mem $seed $M"; done; done | run_jobs results/acc2
+fi
+
+if [ "$PART" = dmvfull ]; then   # not part of "all" (several CPU hours)
+  M="res resj uss ash ashl cs:0:1e9 cs:0:1e9:1:0.25 cs:0:1e9:1:0.15:0.15 cs cs:0:1:1:0.25 cs:0:0 ussc ussc:0:0.25 csh:0:1:0.25"
+  M="$M omnijs omnip omniv omnil omni:28:3 omni:64:2 omni:256:2 omni:1024:2 omni:256:3 omni:1024:1 omni:4096:1 omni:4096:2"
+  M="$M ussc:0:0.15:0.15 csh:0:1:0.15:0.15 coco cococ cococ:0:0.25 cs/ix=2 cs:0:1:1:0.25/ix=2 cs:0:1e9:1:0.25/ix=2"
+  for mem in $MEMS; do for seed in 1 2 3 4 5; do
+    echo "dmv dmv work/dmv.wl $mem $seed $M"; done; done | run_jobs results/dmv
 fi
 
 if [ "$PART" = ci ] || [ "$PART" = all ]; then

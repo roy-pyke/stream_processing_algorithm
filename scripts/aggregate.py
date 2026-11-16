@@ -13,10 +13,13 @@ For every (dataset, method, mem, seed) run we compute, per workload family:
            Section 3.4. The calibrated estimate splits the anchor cell exactly, f_hat + g_hat = n_c,
            where g counts its non-matching records, and the interval is built on the rarer part:
            if f_hat <= n_c / 2 (or no sampled row matches), the rule of three
-           [0, min(n_c, ln(20) / pi_q)] when m = 0 and otherwise the Fay-Feuer gamma interval
-           around f_hat; if f_hat > n_c / 2, the same construction for g (rule of three with the
+           [0, min(n_c, ln(2 / alpha) / pi_q)] when m = 0 (the zero-count case of the gamma /
+           Garwood interval, alpha / 2 per tail) and otherwise the Fay-Feuer gamma interval around
+           f_hat; if f_hat > n_c / 2, the same construction for g (rule of three with the
            inclusion-probability floor pi_a of the anchor's records when every sampled anchor row
-           matches), mapped back by f = n_c - g. Truncated to [m, n_c] (m = matching sampled rows,
+           matches), mapped back by f = n_c - g. The g side needs an anchor that is a set of
+           records; for dyadic anchors, which may count a record in several cover cells, the
+           synopsis reports wanc = 0 and only the matches side is used. Truncated to [m, n_c] (m = matching sampled rows,
            n_c = anchor count, both hard bounds). Runs without the anchor columns (wa, wanc) get
            the one-sided version (the matches only).
   ci95_f   the one-sided version, for comparison
@@ -54,7 +57,7 @@ def _one_side(y, sd, k, w, scale):
     three when k = 0 (each record of the part is sampled with probability >= 1 / w), else Fay-Feuer."""
     lo, hi = _ff(y, sd ** 2, scale * w)
     z = k == 0
-    return np.where(z, 0.0, lo), np.where(z, np.log(1 / ALPHA) * w, hi)
+    return np.where(z, 0.0, lo), np.where(z, np.log(2 / ALPHA) * w, hi)
 
 
 def small_count_ci(est, ht, sd, m, wq, nb, wa=None, wanc=None):
@@ -68,7 +71,7 @@ def small_count_ci(est, ht, sd, m, wq, nb, wa=None, wanc=None):
         allmatch = g <= 1e-9 * np.maximum(nb, 1.0)                # no non-matching anchor row sampled
         sg = np.where(wa > 0, nb / np.maximum(wa, 1e-300), 1.0)
         glo, ghi = _one_side(g, sd, np.where(allmatch, 0, 1), wanc, sg)
-        use_g = (m > 0) & (est > nb / 2)
+        use_g = (m > 0) & (est > nb / 2) & (wanc > 0)
         lo, hi = np.where(use_g, nb - ghi, lo), np.where(use_g, nb - glo, hi)
     lo = np.maximum(lo, m)
     hi = np.minimum(hi, nb)

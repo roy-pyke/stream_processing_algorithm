@@ -220,7 +220,7 @@ When the workload concentrates on a few attribute sets (template workload), sele
 $4p$ tables are as accurate as all pairs at $p=32$ (error ratio \NumPairTmplThirtyTwoWlFourP{} in favour of
 the selection) and better at $p=68$ (\NumPairTmplSixtyEightWlFourP), because 272 tables are each eight
 times wider than 2\,278, and the throughput rises from \NumPairTpAll{} to \NumPairTpSelFourP{} million
-records/s (C1 only: \NumPairTpCOne; measured on the second machine, see below). Pair selection is thus a
+records/s (C1 only: \NumPairTpCOne). Pair selection is thus a
 workload-driven optimisation; the data alone do not reveal which pairs will be queried.
 
 \subsection{Update throughput and query latency}\label{sec:speed}
@@ -239,10 +239,9 @@ counters only, a uniform or stratified sample ingests \NumTpCalOneLo--\NumTpCalO
 \NumTpCsOneVsOmniLo--\NumTpCsOneVsOmniHi$\times$ the throughput of the fastest \omni variant. The pair
 tables cost a factor \NumTpPairCostLo--\NumTpPairCostHi{} ($\binom p2=66$ and 45 increments per record on
 Taxi and MAWI), so \textsc{RS+C2} and \cs reach \NumTpCalTwoVsOmniLo--\NumTpCalTwoVsOmniHi{} times the
-throughput of the fastest \omni variant: slower at 1\,MB, where \omni's cells are tiny, and on par or faster
-at 50\,MB. Our \omni is \NumTpOursVsJavaLo--\NumTpOursVsJavaHi{} times as fast as the port of the authors'
-tree-based implementation, so the comparison is not against a slow strawman. The configurations added for this submission were
-timed sequentially on a second machine (Apple M4 Pro, one job at a time). There, CocoSketch ingests
+throughput of the fastest \omni variant: \NumTpCalTwoVsOmniOneLo--\NumTpCalTwoVsOmniOneHi$\times$ at 1\,MB,
+where \omni's cells are tiny, and \NumTpCalTwoVsOmniFiftyLo--\NumTpCalTwoVsOmniFiftyHi$\times$ at 50\,MB. Our \omni is \NumTpOursVsJavaLo--\NumTpOursVsJavaHi{} times as fast as the port of the authors'
+tree-based implementation, so the comparison is not against a slow strawman. CocoSketch ingests
 \NumTpNewCocoLo--\NumTpNewCocoHi{} million records/s and USS \NumTpNewUssLo--\NumTpNewUssHi{}, and the
 dyadic counters cost \cs a factor \NumRangeTpDyCostLo--\NumRangeTpDyCostHi{} in throughput on the range
 workloads (\NumRangeTpDyLo--\NumRangeTpDyHi{} million records/s), which leaves it at

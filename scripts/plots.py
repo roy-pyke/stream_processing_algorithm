@@ -137,7 +137,9 @@ if os.path.exists("results/agg_hydra.csv"):
 if os.path.exists("results/agg_acc2.csv"):   # CocoSketch and index-charged runs (scripts/run_presub.sh main)
     a2_ = pd.read_csv("results/agg_acc2.csv")
     acc = pd.concat([acc, a2_[a2_.method.isin([COCO, COCOC1, COCOC2]) | a2_.method.str.endswith(IX)]], ignore_index=True)
-DATASETS = [d for d in DATASETS if d in set(acc.dataset)]
+if os.path.exists("results/agg_dmv.csv"):    # full DMV matrix (scripts/run_presub.sh dmvfull) replaces the partial one
+    acc = pd.concat([acc[acc.dataset != "dmv"], pd.read_csv("results/agg_dmv.csv")], ignore_index=True)
+DATASETS =[d for d in DATASETS if d in set(acc.dataset)]
 REAL = [d for d in DATASETS if d in ("taxi", "mawi", "dmv")]
 # Primary metric: NAE on record-sampled queries with k >= 2 predicates (workload definition of the OmniSketch paper).
 kmax = 6
@@ -481,7 +483,7 @@ if os.path.exists("results/time/time.log"):
         if ln.startswith("TIME,"):
             f_ = ln.strip().split(",")
             rows.append(dict(dataset=f_[1], method=f_[2], mem=float(f_[3]), p=int(f_[4]), ns=float(f_[6]), mrps=float(f_[7])))
-    t = pd.DataFrame(rows)
+    t = pd.DataFrame(rows).drop_duplicates(["dataset", "method", "mem"])   # a few configurations are timed twice; keep the first
     qrows = []
     if os.path.exists("results/time/query.log"):
         for ln in open("results/time/query.log"):
@@ -539,6 +541,12 @@ if os.path.exists("results/time/time.log"):
             if meth in tp.columns:
                 r = tp[meth] / tp[omni_cols].max(axis=1)
                 NUM[f"Tp{tag}VsOmniLo"], NUM[f"Tp{tag}VsOmniHi"] = fnum(r.min(), 1), fnum(r.max(), 1)
+        if RSC2 in tp.columns and CS2 in tp.columns:   # RS+C2 and CoStrata against the fastest OmniSketch, per budget
+            r2 = pd.concat([tp[RSC2] / tp[omni_cols].max(axis=1), tp[CS2] / tp[omni_cols].max(axis=1)])
+            for mem_, tag_ in ((1.0, "One"), (50.0, "Fifty")):
+                rr_ = r2[r2.index.get_level_values("mem") == mem_]
+                if len(rr_):
+                    NUM[f"TpCalTwoVsOmni{tag_}Lo"], NUM[f"TpCalTwoVsOmni{tag_}Hi"] = fnum(rr_.min(), 1), fnum(rr_.max(), 1)
         if "omnij" in tp.columns and "omnip" in tp.columns:
             r = tp["omnip"] / tp["omnij"]
             NUM["TpOursVsJavaLo"], NUM["TpOursVsJavaHi"] = fnum(r.min(), 1), fnum(r.max(), 1)
@@ -971,28 +979,28 @@ if os.path.exists("results/agg_pairs.csv"):
         if CS2 in g_.index:
             loss.append(np.nanmin(sel4) / g_[CS2])
     put("PairRndLoss", loss, 1)
-    if os.path.exists("results/time/presub_time.log"):
+    if os.path.exists("results/time/time.log"):
         tt_ = []
-        for ln in open("results/time/presub_time.log"):
+        for ln in open("results/time/time.log"):
             if ln.startswith("TIME,census"):
                 f_ = ln.strip().split(",")
                 tt_.append(dict(dataset=f_[1], method=f_[2], mrps=float(f_[7])))
-        tt_ = pd.DataFrame(tt_)
+        tt_ = pd.DataFrame(tt_).drop_duplicates(["dataset", "method"])
         if len(tt_):
             g_ = tt_[tt_.dataset == "census_p68"].set_index("method").mrps
             for key, tag in [(CS1, "COne"), (CS2, "All"), (f"{CS2}/psel=wl/np=68", "SelP"), (f"{CS2}/psel=wl/np=272", "SelFourP")]:
                 if key in g_.index:
                     NUM[f"PairTp{tag}"] = f"{g_[key]:.1f}" if g_[key] >= 1 else f"{g_[key]:.2f}"
 
-# ---------------------------------------------------------------- throughput of the new configurations (this machine, sequential)
-if os.path.exists("results/time/presub_time.log"):
+# ---------------------------------------------------------------- throughput of CocoSketch, dyadic ranges (scripts/run_timing.sh)
+if os.path.exists("results/time/time.log"):
     tt2 = []
-    for ln in open("results/time/presub_time.log"):
+    for ln in open("results/time/time.log"):
         if ln.startswith("TIME,"):
             f_ = ln.strip().split(",")
             tt2.append(dict(dataset=f_[1], method=f_[2], mem=float(f_[3]), mrps=float(f_[7])))
-    tt2 = pd.DataFrame(tt2)
-    note("throughput of the presubmission configurations (Mrec/s)", tt2.pivot_table(index=["dataset", "mem"], columns="method", values="mrps"))
+    tt2 = pd.DataFrame(tt2).drop_duplicates(["dataset", "method", "mem"])
+    note("throughput of CocoSketch / range configurations (Mrec/s)", tt2.pivot_table(index=["dataset", "mem"], columns="method", values="mrps"))
     rt = tt2[tt2.dataset.str.endswith("_range")].pivot_table(index=["dataset", "mem"], columns="method", values="mrps")
     if len(rt):
         oc_ = [c for c in rt.columns if c.startswith("omnid")]
@@ -1002,7 +1010,7 @@ if os.path.exists("results/time/presub_time.log"):
             put("RangeTpDyCost", rt[CS2] / rt[DY2], 2)
             NUM["RangeTpDyLo"], NUM["RangeTpDyHi"] = f"{rt[DY2].min():.1f}", f"{rt[DY2].max():.1f}"
             NUM["RangeTpOmniLo"], NUM["RangeTpOmniHi"] = f"{rt[oc_].min().min():.1f}", f"{rt[oc_].max().max():.1f}"
-    ct = tt2[~tt2.dataset.str.contains("range|census")].pivot_table(index=["dataset", "mem"], columns="method", values="mrps")
+    ct = tt2[tt2.dataset.isin(["taxi", "mawi"])].pivot_table(index=["dataset", "mem"], columns="method", values="mrps")
     for key, tag in [(COCO, "Coco"), (COCOC2, "CocoCalTwo"), ("uss", "Uss"), (USSC2, "UssCalTwo"), (CS2, "Cs")]:
         if key in ct.columns:
             NUM[f"TpNew{tag}Lo"], NUM[f"TpNew{tag}Hi"] = f"{ct[key].min():.1f}", f"{ct[key].max():.1f}"
