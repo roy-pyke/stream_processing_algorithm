@@ -54,9 +54,18 @@ Checksums (MD5) of the files used for the published results:
 | `data/dmv.bin` | `f319b8803082fa36f840de9d99af65e3` |
 | `data/census.bin` | `e69071ef0ba0b78716727c035aa62217` |
 
-The DMV table on data.ny.gov is updated continuously; a download made later will not match the checksum
-above (it was retrieved in November 2026). The Taxi file has also been republished by the TLC in the past.
-If the checksum differs, the results will differ in detail but not in kind.
+The DMV table on data.ny.gov is updated monthly, so a download made later will not match the checksum above
+(it was retrieved on 2026-11-15). The exact file is kept as release
+[`data-dmv-2026-11`](https://github.com/roy-pyke/stream_processing_algorithm/releases/tag/data-dmv-2026-11)
+(`dmv-2026-11.csv.xz`, 148 MB, SHA-256 `de1e0631…2e2513d82be`; the OPEN-NY Terms of Use allow sharing):
+
+```bash
+xz -dc dmv-2026-11.csv.xz > data/raw/dmv/dmv.csv     # MD5 6e57f90976de043f34cf5341d7295516
+```
+
+The Taxi file has also been republished by the TLC in the past; it is not mirrored here, because the NYC
+terms of use do not grant a license to redistribute it. If a checksum differs, the results will differ in
+detail but not in kind.
 
 ## Streams of the original evaluation (not available to us)
 
