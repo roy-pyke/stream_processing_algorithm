@@ -18,4 +18,5 @@ list says where to get each of them. The full bibliography is at the end of `pap
 | `svoila.pdf` | T. D. Nguyen et al. Stratified random sampling from streaming and stored data (S-VOILA). EDBT 2019 | <https://arxiv.org/abs/1801.09039> |
 | `cvopt.pdf` | T. D. Nguyen et al. Random sampling for group-by queries (CVOPT). ICDE 2020 | <https://arxiv.org/abs/1909.02629> |
 | `omni_src/*.java` | the authors' OmniSketch implementation | <https://github.com/wiegerpunter/omnisketch>, commit `8dc67b5`; fetched and built unmodified by `scripts/setup_upstream.sh` |
-| (not stored) | the journal version's code, configuration files and analysis notebooks | <https://github.com/wiegerpunter/omni-deletes>, commit `17b969e` |
+| (not stored) | the journal version's code, configuration files and analysis notebooks | <https://github.com/wiegerpunter/omni-deletes>, commit `17b969e`; fetched and built unmodified by `scripts/setup_omni_deletes.sh` (bounded deletions, #25) |
+| (not stored) | the journal version's data pipeline (generator, residue/noise split, mixing of inserts and deletes) | <https://github.com/wiegerpunter/dataset-pipeline>, commit `06d5dc1`; re-implemented by `DeletesHarness gen` and `bin/mkdelstream` |

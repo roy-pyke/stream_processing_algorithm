@@ -33,6 +33,7 @@ make                                   # bin/bench bin/gen_synth bin/mkworkload 
 g++ -O3 -march=native -std=c++17 -o bin/bias_probe src/bias_probe.cpp
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
 scripts/setup_upstream.sh              # clones github.com/wiegerpunter/omnisketch @ 8dc67b5 into ext/, builds it
+scripts/setup_omni_deletes.sh          # journal version's code (omni-deletes @ 17b969e) + harness, for the deletion runs
                                        # (uses the jars shipped in that repository; downloads Temurin JDK 21 if no javac)
 ```
 
@@ -83,11 +84,14 @@ scripts/run_accuracy.sh 8        # accuracy matrix (5 seeds)
 scripts/run_presub.sh dmvfull 6  # DMV (large): every method of the main table, 7 budgets, 5 seeds
 OUT=results/acc3 METHODS="ussc:0:0.15:0.15 csh:0:1:0.15:0.15" scripts/run_accuracy.sh 8   # triple-table variants
 scripts/run_journal_setting.sh 3 # journal-version setting (9 attributes, their baselines and accounting)
+scripts/run_deletes.sh 3        # bounded deletions in the journal's setting (their OmniSketch and aSH code vs RS, RS+C2/C3)
+.venv/bin/python scripts/deletes.py   # -> results/agg_deletes.csv
 scripts/run_hydra.sh 2           # the authors' Hydra adaptation on the 5-attribute streams
 HYDRA_REAL=1 HYDRA_XMX=2g scripts/run_hydra.sh 4   # ... and on Taxi and MAWI (one JVM per budget; hours)
 scripts/run_extra.sh 4           # ablations, attribute scaling
 scripts/run_bias.sh 8 && python scripts/bias_check.py ; scripts/run_bias_probe.sh
 scripts/run_presub.sh all 8      # CocoSketch, index charged, interval diagnostics, ranges, merging, pair selection
+scripts/run_new_traces.sh 6       # SNMP and CAIDA, once their raw data is in data/raw (docs/datasets.md)
 scripts/run_timing.sh            # all throughputs and query latencies, Hydra included (idle machine, one job)
 
 python scripts/aggregate.py results/acc     results/agg_acc.csv     work
@@ -114,3 +118,8 @@ the workloads and the seeds, not on the hardware; across platforms they agree st
 bit-identical, because a few decisions go through the platform's `log`/`pow`. Timing results
 (`scripts/run_timing.sh`) must be taken on an otherwise idle machine; those in `results/time/` were taken on an
 Apple M4 Pro, and `results/time/i5-1245U/` keeps an earlier run on an Intel i5-1245U laptop.
+
+## License
+
+Code: MIT (`LICENSE`), except `src/omni_java_compat.hpp`, a port of the authors' unlicensed OmniSketch
+code kept for validation. Paper sources and figures: CC BY 4.0. Details in `NOTICE`.

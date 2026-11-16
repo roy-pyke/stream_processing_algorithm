@@ -54,18 +54,47 @@ Checksums (MD5) of the files used for the published results:
 | `data/dmv.bin` | `f319b8803082fa36f840de9d99af65e3` |
 | `data/census.bin` | `e69071ef0ba0b78716727c035aa62217` |
 
-The DMV table on data.ny.gov is updated continuously; a download made later will not match the checksum
-above (it was retrieved in November 2026). The Taxi file has also been republished by the TLC in the past.
-If the checksum differs, the results will differ in detail but not in kind.
+The DMV table on data.ny.gov is updated monthly, so a download made later will not match the checksum above
+(it was retrieved on 2026-11-15). The exact file is kept as release
+[`data-dmv-2026-11`](https://github.com/roy-pyke/stream_processing_algorithm/releases/tag/data-dmv-2026-11)
+(`dmv-2026-11.csv.xz`, 148 MB, SHA-256 `de1e0631…2e2513d82be`; the OPEN-NY Terms of Use allow sharing):
+
+```bash
+xz -dc dmv-2026-11.csv.xz > data/raw/dmv/dmv.csv     # MD5 6e57f90976de043f34cf5341d7295516
+```
+
+The Taxi file has also been republished by the TLC in the past; it is not mirrored here, because the NYC
+terms of use do not grant a license to redistribute it. If a checksum differs, the results will differ in
+detail but not in kind.
 
 ## Streams of the original evaluation (not available to us)
 
-The OmniSketch paper evaluates on two further real streams. Neither is used in our results yet.
+The OmniSketch paper evaluates on two further real streams. Neither is used in our results yet: SNMP
+needs a free IEEE DataPort account (#11), CAIDA an approved application (#10).
 
 | Stream | Type | Size in the OmniSketch paper | Access |
 |---|---|---|---|
 | SNMP | SNMP polling records of the Dartmouth College wireless network, fall 2003 | 8.2 M records, 11 attributes | CRAWDAD `dartmouth/campus` on IEEE DataPort (free account required), file `fall03.tar.gz` of `dartmouth/campus/snmp`: <https://ieee-dataport.org/open-access/crawdad-dartmouthcampus-v-2009-09-09>, doi:10.15783/C7F59T |
 | CAIDA | anonymised backbone packet traces (CAIDA UCSD Anonymized Internet Traces) | 109 M records, 6 attributes | by application (academic and US government researchers), usually processed in a few business days: <https://www.caida.org/catalog/datasets/request_user_info_forms/passive_dataset_request/>; catalogue: <https://www.caida.org/catalog/datasets/passive_dataset/>. Subject to the CAIDA Acceptable Use Agreement. The paper does not state which year's trace it uses. |
+
+The pipeline for both is ready (#12); `scripts/run_new_traces.sh` converts, generates the workloads, runs
+the accuracy matrix and aggregates as soon as the raw data is in place:
+
+```bash
+mkdir -p data/raw/snmp && tar -xzf fall03.tar.gz -C data/raw/snmp     # day directories 031101 ... *.snmp.gz
+mkdir -p data/raw/caida && mv <trace files>.pcap.gz data/raw/caida/  # converted in name order
+scripts/run_new_traces.sh 6
+```
+
+- **SNMP** (`scripts/convert.py snmp`) follows the authors' loader (`omniVLDB.RecordSNMP`,
+  `ProcessedStreamLoaderGeneric`, `Dataset.SNMPDataset`): the days 031101-031119 (their file condition
+  `03110_OR_03111`); a record is a `sys` line with the fields of the last well-formed `if` line before the
+  next `sys` line; records missing a non-optional field are dropped; stream order = timestamp. The 11
+  attributes are those of their experiments (`CompareBaselines`): ifOutOctets, ifOutErrors, ifInDiscards,
+  AP, ifDescr, ifOutUcastPkts, ifInUcastPkts, ifInOctets, ifInErrors, awcFtClientSTASelf, ifOutDiscards.
+- **CAIDA** (`bin/pcap2bin --caida out.bin trace...`): the 6 attributes of their experiments, dstIP,
+  protocol, dst/16, srcIP, src&0xffff, src/16. The authors encode an address by deleting its dots, which
+  merges some addresses (1.23.4.5 and 12.3.4.5); we keep exact addresses.
 
 ## Synthetic streams
 

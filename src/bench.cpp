@@ -3,6 +3,10 @@
 //   bench time  <data.bin> <name> <mem_mb> <seed> <reps> [-p k] [-w workload.txt] <spec>...
 //               (-w supplies range attributes for dy=1 / omnid and the workload for psel=wl)
 //   bench merge <data.bin> <workload.txt> <out.csv> <name> <mem_mb> <seed> <parts> [-p k] <spec>...
+//   bench del   <base.bin> <ops.bin> <workload.txt> <out.csv> <name> <mem_mb> <seed> <spec>...
+//               update stream with deletions (bin/mkdelstream): ops.bin = "UPDS" | u64 m | m x int32,
+//               +(i+1) inserts row i of base.bin, -(i+1) deletes it; uniform cs specs only (RS, RS+C1/2/3),
+//               a pending-delete buffer of max(1024, M/64) x 64 bits is charged to the budget (CoStrata::remove)
 // Method specs (all sized to the same memory budget of mem_mb * 8e6 bits):
 //   res            uniform row reservoir
 //   uss            Unbiased Space-Saving on full tuples
@@ -583,6 +587,81 @@ int main(int argc, char** argv) {
                    (unsigned long long)seed, d.p, (unsigned long long)d.n, t_ing, t_ing / (double)d.n * 1e9,
                    t_q / (double)qs.size() * 1e6, (double)used_bits / 8e6, info.c_str());
             fflush(stdout);
+        }
+        fclose(out);
+    } else if (mode == "del") {
+        // ------------------------------------------------------------ update stream with deletions
+        if (argc < 10) { fprintf(stderr, "bad args\n"); return 1; }
+        if (!d.load(argv[2])) { fprintf(stderr, "cannot load data\n"); return 1; }
+        std::vector<int32_t> ops;
+        {
+            FILE* f = fopen(argv[3], "rb");
+            char magic[4];
+            uint64_t m = 0;
+            if (!f || fread(magic, 1, 4, f) != 4 || memcmp(magic, "UPDS", 4) != 0 || fread(&m, 8, 1, f) != 1) {
+                fprintf(stderr, "cannot load update stream\n");
+                return 1;
+            }
+            ops.resize(m);
+            if (fread(ops.data(), 4, m, f) != m) { fprintf(stderr, "short update stream\n"); return 1; }
+            fclose(f);
+        }
+        std::vector<Query> qs;
+        if (!load_workload(argv[4], qs)) { fprintf(stderr, "cannot load workload\n"); return 1; }
+        FILE* out = fopen(argv[5], "a");
+        std::string name = argv[6];
+        double mem_mb = atof(argv[7]);
+        uint64_t seed = strtoull(argv[8], 0, 10);
+        uint64_t bits = (uint64_t)(mem_mb * 8e6);
+        Ctx cx;
+        cx.qs = &qs;
+        for (int ai = 9; ai < argc; ai++) {
+            Spec sp = parse_spec(argv[ai]);
+            if (sp.kind != "cs" || sp.a.size() < 2 || sp.a[1] < 1e6) {
+                fprintf(stderr, "del: only the uniform designs (cs:w:lf with lf >= 1e6) support deletions: %s\n", sp.raw.c_str());
+                continue;
+            }
+            std::string info;
+            // pending-delete buffer: max(1024, M / 64) keys of 64 bits (about 1 bit per row), charged
+            CoStrata* s0 = make_cs(sp, d, bits, seed * 7919 + 4, cx, info);
+            if (!s0) { fprintf(stderr, "budget too small for %s\n", sp.raw.c_str()); continue; }
+            uint64_t pend_cap = std::max<uint64_t>(1024, s0->M / 64);
+            delete s0;
+            CoStrata* s = make_cs(sp, d, bits - CoStrata::delete_bits(pend_cap), seed * 7919 + 4, cx, info);
+            if (!s) { fprintf(stderr, "budget too small for %s\n", sp.raw.c_str()); continue; }
+            s->enable_deletes(pend_cap);
+            double t0 = now_sec();
+            for (int32_t op : ops) {
+                if (op > 0) s->insert((uint64_t)(op - 1), d.row((uint64_t)(op - 1)));
+                else s->remove((uint64_t)(-op - 1), d.row((uint64_t)(-op - 1)));
+            }
+            s->finalize();
+            double t_ing = now_sec() - t0;
+            Out o;
+            o.init(qs.size(), true, true);
+            bool rake = sp.a.size() > 5 && sp.a[5] > 0;
+            t0 = now_sec();
+            for (size_t i = 0; i < qs.size(); i++) {
+                CoStrata::Est e = s->estimate(qs[i]);
+                o.est[i] = rake ? s->estimate_rake(qs[i]) : e.hajek;
+                o.ht[i] = e.ht; o.sd[i] = e.sd_hajek; o.cm[i] = e.cm; o.diag(i, e);
+            }
+            double t_q = now_sec() - t0;
+            for (size_t i = 0; i < qs.size(); i++)
+                fprintf(out, "%s,%s,%g,%llu,%zu,%.12g,%.12g,%.12g,%.12g,%.12g,%.12g,%.12g,%.12g,%.12g\n", name.c_str(), sp.raw.c_str(),
+                        mem_mb, (unsigned long long)seed, i, o.est[i], o.ht[i], o.sd[i], o.cm[i], o.m[i], o.wmax[i], o.wa[i], o.va[i],
+                        o.wanc[i]);
+            char buf[240];
+            snprintf(buf, sizeof buf, ";held=%llu;M=%llu;live=%llu;buffer=%llu;deletes=%llu;rows_deleted=%llu;flushes=%llu;compactions=%llu",
+                     (unsigned long long)s->size, (unsigned long long)s->M, (unsigned long long)s->N, (unsigned long long)pend_cap,
+                     (unsigned long long)s->deletes,
+                     (unsigned long long)s->rows_deleted, (unsigned long long)s->pend_flushes, (unsigned long long)s->compactions);
+            info += buf;
+            printf("DRUN,%s,%s,%g,%llu,%u,%zu,%.3f,%.2f,%.2f,%.3f,%s\n", name.c_str(), sp.raw.c_str(), mem_mb, (unsigned long long)seed, d.p,
+                   ops.size(), t_ing, t_ing / (double)ops.size() * 1e9, t_q / (double)qs.size() * 1e6, (double)s->mem_bits() / 8e6,
+                   info.c_str());
+            fflush(stdout);
+            delete s;
         }
         fclose(out);
     } else if (mode == "time") {

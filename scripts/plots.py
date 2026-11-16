@@ -6,6 +6,7 @@
 """
 import json
 import os
+import re
 
 import matplotlib
 
@@ -53,8 +54,9 @@ STYLE = {
 OMNI_GRID = ["omnil", "omni:28:3", "omni:64:2", "omni:256:2", "omni:1024:2", "omni:256:3", "omni:1024:1", "omni:4096:1", "omni:4096:2"]
 OMNI_FAMILY = ["omnijs", "omnip", "omniv"] + OMNI_GRID
 DS_LABEL = {"zipf10_5M": r"Zipf $\alpha{=}1.0$", "zipf13_5M": r"Zipf $\alpha{=}1.3$", "zipf15_5M": r"Zipf $\alpha{=}1.5$",
-            "unif_5M": "Uniform", "taxi": "Taxi", "mawi": "MAWI", "dmv": "DMV"}
-DATASETS = ["zipf10_5M", "zipf13_5M", "zipf15_5M", "unif_5M", "taxi", "mawi", "dmv"]
+            "unif_5M": "Uniform", "taxi": "Taxi", "mawi": "MAWI", "dmv": "DMV", "snmp": "SNMP", "caida": "CAIDA"}
+# streams in the order of the figures and tables; those without results are left out (SNMP and CAIDA: #12)
+DATASETS = ["zipf10_5M", "zipf13_5M", "zipf15_5M", "unif_5M", "taxi", "mawi", "dmv", "snmp", "caida"]
 INK, MUTED, GRID = "#1a1a19", "#6b6a63", "#e4e2da"
 
 plt.rcParams.update({
@@ -139,8 +141,10 @@ if os.path.exists("results/agg_acc2.csv"):   # CocoSketch and index-charged runs
     acc = pd.concat([acc, a2_[a2_.method.isin([COCO, COCOC1, COCOC2]) | a2_.method.str.endswith(IX)]], ignore_index=True)
 if os.path.exists("results/agg_dmv.csv"):    # full DMV matrix (scripts/run_presub.sh dmvfull) replaces the partial one
     acc = pd.concat([acc[acc.dataset != "dmv"], pd.read_csv("results/agg_dmv.csv")], ignore_index=True)
+if os.path.exists("results/agg_new.csv"):    # SNMP and CAIDA (scripts/run_new_traces.sh, #12)
+    acc = pd.concat([acc, pd.read_csv("results/agg_new.csv")], ignore_index=True)
 DATASETS =[d for d in DATASETS if d in set(acc.dataset)]
-REAL = [d for d in DATASETS if d in ("taxi", "mawi", "dmv")]
+REAL = [d for d in DATASETS if d in ("taxi", "mawi", "dmv", "snmp", "caida")]
 # Primary metric: NAE on record-sampled queries with k >= 2 predicates (workload definition of the OmniSketch paper).
 kmax = 6
 acc["nae0m"] = acc[[f"nae0_k{k}" for k in range(2, kmax + 1)]].mean(axis=1)
@@ -151,12 +155,12 @@ metrics = ["nae0", "nae0m", "nae1", "mre0", "mre1"] + dcols + kcols + nkcols
 m = with_omnibest(mean_over_seeds(acc, metrics), metrics)
 have = set(m.method.unique())
 NUM["OmniFamilySize"] = str(len(OMNI_FAMILY))
-NUM["RealStreams"] = {1: "one", 2: "two", 3: "three"}[len(REAL)]
+NUM["RealStreams"] = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}[len(REAL)]
 
 # ---------------------------------------------------------------- Fig: NAE vs memory
 order = ["omnijs", "omnibest", "hydra", "res", COCO, RSC2, USSC3, CSH]
-ncol_ = 4 if len(DATASETS) > 6 else 3
-fig, axes = plt.subplots(2, ncol_, figsize=(7.0 if ncol_ == 3 else 8.6, 4.1), sharex=True)
+ncol_ = 5 if len(DATASETS) > 8 else 4 if len(DATASETS) > 6 else 3
+fig, axes = plt.subplots(2, ncol_, figsize=({3: 7.0, 4: 8.6, 5: 10.4}[ncol_], 4.1), sharex=True)
 for ax in axes.flat[len(DATASETS):]:
     ax.axis("off")
 for ax, ds in zip(axes.flat, DATASETS):
@@ -488,6 +492,70 @@ if os.path.exists("results/agg_journal.csv"):
         put(f"{tag}OmniVsResj", c("omniv") / c("resj"), 1)
         put(f"{tag}PvldbVsRes", c("omnijs") / c("res"), 1)
         put(f"{tag}CalTwoVsRes", c("res") / c(RSC2), 1)
+
+# ====================================================================== bounded deletions (#25)
+if os.path.exists("results/agg_deletes.csv"):
+    dl = pd.read_csv("results/agg_deletes.csv")
+    dcols_ = [c for c in ["nae0m", "naej", "mrej", "held", "M", "ns_upd", "mem_mb"] if c in dl.columns]
+    dm = dl.groupby(["perc", "method", "mem"], as_index=False)[dcols_].mean()
+    dmeth = ["s2", "ash", "res", "rsc2", "rsc3"]
+    dlab = {"s2": "OmniSketch (journal code)", "ash": "aSH (journal code)", "res": "RS", "rsc2": "RS+C2", "rsc3": "RS+C3"}
+    percs = sorted(dm.perc.unique())
+    with open("paper/tables/deletes.tex", "w") as f:
+        f.write("\\begin{tabular}{l" + "r" * (2 * len(percs)) + "}\n\\toprule\n")
+        f.write(f" & \\multicolumn{{{len(percs)}}}{{c}}{{record-sampled queries ($k\\ge2$)}} & \\multicolumn{{{len(percs)}}}{{c}}{{journal-style queries ($k=1..9$)}} \\\\\n")
+        f.write("Deletions per residue record & " + " & ".join(f"{x:g}" for x in percs * 2) + " \\\\\n\\midrule\n")
+        for mem in sorted(dm.mem.unique()):
+            f.write(f"\\multicolumn{{{1 + 2 * len(percs)}}}{{l}}{{\\emph{{{mem:g}\\,MB}}}} \\\\\n")
+            for key in dmeth:
+                cells = []
+                for colname in ("nae0m", "naej"):
+                    for x in percs:
+                        r_ = dm[(dm.perc == x) & (dm.method == key) & (dm.mem == mem)]
+                        cells.append(fmt_sci(r_[colname].iloc[0]) if len(r_) else "--")
+                f.write(dlab[key] + " & " + " & ".join(cells) + " \\\\\n")
+        f.write("\\bottomrule\n\\end{tabular}\n")
+    note("bounded deletions: NAE record-sampled k>=2", dm.pivot_table(index=["mem", "perc"], columns="method", values="nae0m"))
+    note("bounded deletions: NAE journal-style", dm.pivot_table(index=["mem", "perc"], columns="method", values="naej"))
+    note("bounded deletions: MRE journal-style", dm.pivot_table(index=["mem", "perc"], columns="method", values="mrej"))
+    for colname, tag in (("nae0m", "R"), ("naej", "J")):
+        T = dm.pivot_table(index=["mem", "perc"], columns="method", values=colname)
+        c = lambda k: T[k] if k in T.columns else pd.Series(np.nan, index=T.index)
+        put(f"Del{tag}OmniVsCalTwo", c("s2") / c("rsc2"), 0)     # > 1: RS+C2 more accurate than their OmniSketch
+        put(f"Del{tag}AshVsCalTwo", c("ash") / c("rsc2"), 1)
+        put(f"Del{tag}OmniVsRes", c("s2") / c("res"), 1)
+        put(f"Del{tag}AshVsRes", c("ash") / c("res"), 2)
+        put(f"Del{tag}ResVsCalTwo", c("res") / c("rsc2"), 1)
+        put(f"Del{tag}CalThreeVsCalTwo", c("rsc3") / c("rsc2"), 2)
+        for key, mtag in (("s2", "Omni"), ("ash", "Ash"), ("res", "Res"), ("rsc2", "CalTwo")):
+            if key in T.columns and 0.0 in T.index.get_level_values("perc") and max(percs) > 0:
+                g_ = [T.loc[(m_, max(percs)), key] / T.loc[(m_, 0.0), key] for m_ in sorted(dm.mem.unique())
+                      if (m_, max(percs)) in T.index and (m_, 0.0) in T.index]
+                put(f"Del{tag}Growth{mtag}", np.array(g_), 1)    # error at the largest deletion ratio / no deletions
+    # mean relative error of the journal-style queries, per single run (heavy-tailed for OmniSketch:
+    # a few near-empty conjunctions receive estimates in the hundreds in some runs)
+    for key, mtag in (("s2", "Omni"), ("ash", "Ash"), ("res", "Res"), ("rsc2", "CalTwo")):
+        r_ = dl[dl.method == key].mrej
+        if len(r_):
+            NUM[f"DelMre{mtag}Lo"], NUM[f"DelMre{mtag}Hi"], NUM[f"DelMre{mtag}Med"] = (f"{x:.2f}" for x in (r_.min(), r_.max(), r_.median()))
+    if "mem_mb" in dm.columns and max(percs) > 0:
+        sm = dm[dm.method == "s2"].pivot_table(index="mem", columns="perc", values="mem_mb")
+        NUM["DelOmniMemNine"] = f"{100 * (sm[max(percs)] / sm[0.0]).mean():.0f}"   # memory in use at the end, % of no deletions
+    if "held" in dm.columns:
+        h = dm[dm.method == "rsc2"].assign(frac=lambda x: x.held / x.M)
+        for x in percs:
+            r_ = h[h.perc == x].frac
+            if len(r_):
+                NUM[f"DelHeld{str(x).replace('.', 'p').replace('0p33', 'Third').replace('9p0', 'Nine').replace('3p0', 'Three').replace('1p0', 'One').replace('0p0', 'Zero')}"] = f"{100 * r_.mean():.0f}"
+    if os.path.exists("results/deletes_streams.txt"):
+        for ln in open("results/deletes_streams.txt"):
+            m_ = re.match(r"([\d.]+) updates=(\d+) inserts=(\d+) deletes=(\d+) residue=(\d+) peak_live=(\d+)", ln)
+            if m_:
+                x, upd, peak, res_ = float(m_.group(1)), int(m_.group(2)), int(m_.group(6)), int(m_.group(5))
+                tag = {0.33: "Third", 1.0: "One", 3.0: "Three", 9.0: "Nine"}.get(x)
+                if tag:
+                    NUM[f"DelPeak{tag}"] = f"{peak / res_:.2f}"
+                    NUM[f"DelUpdates{tag}"] = f"{upd / 1e6:.1f}"
 
 # ====================================================================== timing
 if os.path.exists("results/time/time.log"):

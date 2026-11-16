@@ -736,6 +736,15 @@ struct MargCal {
                 for (uint32_t b = a + 1; b + 1 < p; b++)
                     for (uint32_t c = b + 1; c < p; c++) c3[cell3(a, b, c, rec[a], rec[b], rec[c])]++;
     }
+    // deletion of a record added before (the tables are linear: counts of the live records)
+    inline void sub(uint64_t rid, const uint32_t* rec) {
+        if (beta < 1.0 && (uint32_t)(mix64(rid ^ bseed) >> 32) >= bthr) return;
+        for (uint32_t t = 0; t < n2; t++) c2[cell2t(t, rec[plist[t].first], rec[plist[t].second])]--;
+        if (w3)
+            for (uint32_t a = 0; a + 2 < p; a++)
+                for (uint32_t b = a + 1; b + 1 < p; b++)
+                    for (uint32_t c = b + 1; c < p; c++) c3[cell3(a, b, c, rec[a], rec[b], rec[c])]--;
+    }
     // tables built with the same seeds over a disjoint part of the stream
     void merge(const MargCal& o) {
         for (size_t i = 0; i < c2.size(); i++) c2[i] += o.c2[i];
@@ -997,7 +1006,7 @@ struct CoStrata {
     }
     static uint64_t bits_per_row(uint32_t p) { return 32ull * p + 32; }
     static inline double prio(uint32_t x) { return ((double)x + 0.5) * (1.0 / 4294967296.0); }
-    uint64_t mem_bits() const { return M * bits_per_row(p) + 32ull * cnt.size() + mc.mem_bits() + dy.mem_bits(); }
+    uint64_t mem_bits() const { return M * bits_per_row(p) + 32ull * cnt.size() + mc.mem_bits() + dy.mem_bits() + delete_bits(pend_cap); }
     // row_extra: further bits charged per row (e.g. 32 p for the query-time index)
     static uint64_t rows_for_budget(uint64_t bits, uint32_t p, uint32_t w, uint64_t cal_bits = 0, uint64_t row_extra = 0) {
         uint64_t fixed = 32ull * p * w + cal_bits;
@@ -1039,8 +1048,77 @@ struct CoStrata {
             uint64_t s = size++;
             for (uint32_t a = 0; a < p; a++) col[a][s] = rec[a];
             u[s] = ui;
+            if (size == M && !pend.empty()) flush_deletes();
             if (size == M) compact();
         }
+    }
+    // ------------------------------------------------------------ deletions (bounded-deletion streams)
+    // Only for the uniform design (house weight lf so large that n* = G for every row; RS, RS+C1/C2/C3):
+    // a row is then stored iff u_r G < B, and since G only grows and B only shrinks, a live record
+    // passing the test at the end was admitted and never evicted. A deletion decrements N, the C1
+    // counters and the pair/triple tables (all linear), and removes the record's row if it is stored,
+    // so that the store holds exactly the live records with u_r G < B: a Bernoulli sample of the live
+    // data with a known rate, which the anchors calibrate as before. Rows are found in batches: the
+    // keys (priority, tuple hash) of deleted records that pass the test are buffered, and one pass over
+    // the store removes them when the buffer is full, before a compaction and in finalize(). The
+    // buffer (64 bits per key; bench del uses max(1024, M / 64) keys, so a flush scans 64 rows per
+    // buffered deletion) is charged to the budget. (The stratified design would need thresholds
+    // from insertion counts, which deletions do not lower; not implemented.)
+    std::vector<uint64_t> pend;
+    uint64_t pend_cap = 0, deletes = 0, pend_flushes = 0, rows_deleted = 0;
+    void enable_deletes(uint64_t cap) { pend_cap = cap; pend.reserve(cap); }
+    static uint64_t delete_bits(uint64_t cap) { return 64ull * cap; }
+    inline uint64_t del_key(uint32_t ui, const uint32_t* rec) const {
+        uint64_t h = 0x8E2B7F1C3A5D9E47ULL;
+        for (uint32_t a = 0; a < p; a++) h = mix64(h ^ ((uint64_t)rec[a] + 0x9E3779B97F4A7C15ULL * (a + 1)));
+        return ((uint64_t)ui << 32) | (h >> 32);
+    }
+    inline void remove(uint64_t rid, const uint32_t* rec) {
+        N--;
+        deletes++;
+        uint32_t nmin = UINT32_MAX;
+        for (uint32_t a = 0; a < p; a++) {
+            uint32_t& c = cnt[(size_t)a * w + bucket_of(rec[a], hseed[a], w)];
+            c--;
+            if (c == 0) E--;
+            nmin = std::min(nmin, c + 1); // the record's own count included, as when it was stored
+        }
+        if (mc.on()) mc.sub(rid, rec);
+        if (dy.on()) { fprintf(stderr, "CoStrata::remove: dyadic counters do not support deletions\n"); exit(1); }
+        uint32_t ui = (uint32_t)(mix64(rid ^ useed) >> 32);
+        double ns = sfun((double)nmin);
+        if (lf > 0 && G < ns) ns = G;
+        if (prio(ui) * ns < Bcur) { // otherwise the row is not stored, or stale (dropped at finalize)
+            pend.push_back(del_key(ui, rec));
+            if (pend.size() >= pend_cap) flush_deletes();
+        }
+    }
+    void flush_deletes() {
+        if (pend.empty()) return;
+        pend_flushes++;
+        std::sort(pend.begin(), pend.end());
+        std::vector<char> used(pend.size(), 0);
+        size_t left = pend.size();
+        std::vector<uint32_t> rowbuf(p);
+        for (uint64_t s = 0; s < size && left > 0;) {
+            for (uint32_t a = 0; a < p; a++) rowbuf[a] = col[a][s];
+            uint64_t k = del_key(u[s], rowbuf.data());
+            size_t i = (size_t)(std::lower_bound(pend.begin(), pend.end(), k) - pend.begin());
+            while (i < pend.size() && pend[i] == k && used[i]) i++;
+            if (i < pend.size() && pend[i] == k) {
+                used[i] = 1;
+                left--;
+                size--;
+                rows_deleted++;
+                if (s != size) {
+                    for (uint32_t a = 0; a < p; a++) col[a][s] = col[a][size];
+                    u[s] = u[size];
+                }
+                continue;
+            }
+            s++;
+        }
+        pend.clear(); // the rest: keys of rows evicted before their deletion
     }
     void compact() {
         compactions++;
@@ -1104,6 +1182,7 @@ struct CoStrata {
     }
     // Drop stale rows, compute Horvitz-Thompson weights and per-stratum aggregates.
     void finalize() {
+        flush_deletes();
         uint64_t o = 0;
         invpi.assign(size, 0.0);
         Wb.assign((size_t)p * w, 0.0);

@@ -16,6 +16,7 @@ results/acc2/
 results/acc3/
 results/ci/
 results/dmv/
+results/new/
 results/range/
 results/merge/
 results/pairs/
@@ -23,6 +24,7 @@ results/logs/
 results/abl/
 results/census/
 results/journal/
+results/deletes/
 results/bias/
 results/bias_first_batch/
 results/hydra/
@@ -47,3 +49,4 @@ paper/*.blg
 paper/*.out
 paper/*.fls
 paper/*.fdb_latexmk
+paper/comment.cut

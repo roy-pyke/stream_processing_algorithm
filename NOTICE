@@ -1,0 +1,21 @@
+Licensing of the parts of this repository
+
+Code (src/, scripts/, repro/, colab/, Makefile): MIT License, see LICENSE, with one exception:
+
+  src/omni_java_compat.hpp is a line-by-line C++ port of the authors' Java OmniSketch
+  (https://github.com/wiegerpunter/omnisketch, commit 8dc67b5), kept for validation only
+  (scripts/validate_omni_java.*). That repository carries no license, so this file is NOT
+  covered by the MIT License; the rights in the ported code remain with its authors.
+
+  The authors' Java code itself is not part of this repository: scripts/setup_upstream.sh
+  clones it into ext/ (not tracked), and repro/omni_java/Harness.java (MIT) only calls it.
+  The CocoSketch synopsis in src/synopses.hpp is our own implementation of the algorithm of
+  Zhang et al. (SIGCOMM 2021); no code of github.com/yindazhang/CocoSketch is included.
+
+Paper (paper/: LaTeX sources, figures, tables): Creative Commons Attribution 4.0
+International (CC BY 4.0), https://creativecommons.org/licenses/by/4.0/ . The acmart class
+and the ACM bibliography style are not included; they come with the TeX installation.
+
+Results (results/): derived from the data sets listed in docs/datasets.md; the aggregated
+numbers are released under CC BY 4.0. The raw data sets are not included and remain under
+their own terms (docs/datasets.md).

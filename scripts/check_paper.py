@@ -94,8 +94,13 @@ for f in re.findall(r"\\input\{([^}]+)\}", allt):
 for f in re.findall(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}", allt):
     if not os.path.exists(os.path.join(root, f)):
         problem("missing figure:", f)
-if "acmart" not in texts["paper.tex"].split("\n")[0]:
+classes = re.findall(r"^\s*\\documentclass\[([^\]]*)\]\{(\w+)\}", texts["paper.tex"], re.M)
+if not classes or any(c != "acmart" for _, c in classes):
     problem("paper.tex does not use the acmart class")
+elif not any({"sigconf", "review", "anonymous"} <= {o.strip() for o in opts.split(",")} for opts, _ in classes):
+    problem("paper.tex: the submission class options must include sigconf, review and anonymous")
+if re.search(r"^\s*\\author\{(?!Anonymous)", texts["paper.tex"], re.M):
+    problem("paper.tex: author names outside authors.tex (double-anonymous review)")
 
 # page limit of the built PDF: 12 pages excluding references
 pdf = os.path.join(root, "paper.pdf")

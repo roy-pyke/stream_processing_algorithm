@@ -1,6 +1,8 @@
 // Bit-exact C++ port of the authors' Java OmniSketch (github.com/wiegerpunter/omnisketch,
 // commit 8dc67b5; classes omniVLDB.omni.{OmniSketch,CountMin,Kmin}, omniVLDB.{RamToPar,DetermineB}).
 //
+// Not covered by the MIT License of this repository (the upstream code has no license; see NOTICE).
+//
 // Purpose: validation only. Fed the same records and queries, this port must return the
 // same integers as the Java code (scripts/validate_omni_java.py checks this per query).
 // It deliberately reproduces every implementation detail that influences the estimates:

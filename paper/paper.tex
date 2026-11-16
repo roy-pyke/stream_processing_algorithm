@@ -1,10 +1,17 @@
-\documentclass[sigconf,review,anonymous]{acmart}
-% SIGMOD 2027 research track: 2-column ACM proceedings format (sigconf), double-anonymous review,
-% 12 pages excluding references; the appendix is a separate PDF (appendix.tex).
+% Submission version by default. `scripts/build_paper.sh camera` builds the camera-ready version
+% (\cameraready defined): no review mode, the authors of authors.tex and the acknowledgments of acks.tex (#9).
+\ifdefined\cameraready
+  \documentclass[sigconf]{acmart}
+\else
+  \documentclass[sigconf,review,anonymous]{acmart}
+\fi
+% SIGMOD research track (all SIGMOD 2027 rounds closed on 2026-10-17; target: SIGMOD 2028, round 1).
+% 2-column ACM proceedings format (sigconf, latest acmart), double-anonymous review, 12 pages excluding
+% references; the appendix is a separate PDF (appendix.tex), read only if reviewers choose to.
 \settopmatter{printacmref=false}
 \setcopyright{none}
 \renewcommand\footnotetextcopyrightpermission[1]{}
-\acmConference[SIGMOD '27]{ACM SIGMOD International Conference on Management of Data}{2027}{}
+\acmConference[SIGMOD '28]{ACM SIGMOD International Conference on Management of Data}{2028}{}
 
 \usepackage{booktabs}
 \usepackage{algorithm}
@@ -29,8 +36,12 @@
 
 \title{Counters for Marginals, Rows for the Rest: Calibrated Row Sampling for Ad-hoc Predicate Counting on Streams}
 
-\author{Anonymous Author(s)}
-\affiliation{\institution{Submission to SIGMOD 2027}\country{}}
+\ifdefined\cameraready
+  \input{authors}
+\else
+  \author{Anonymous Author(s)}
+  \affiliation{\institution{Submission to SIGMOD 2028}\country{}}
+\fi
 
 \begin{abstract}
 Counting the records of a multi-attribute stream that satisfy a conjunction of predicates chosen at
@@ -177,7 +188,8 @@ identifier and values $r_1,\dots,r_p$ on $p$ attributes. After $N$ records, a qu
 the number of records seen so far that satisfy a conjunction of predicates on a subset $Q$ of the
 attributes. We focus on equality predicates, $q = \bigwedge_{a\in Q}(r_a = v_a)$, as~\cite{omni} does,
 and treat range predicates in Section~\ref{sec:range}. The synopsis must use sub-linear memory and the
-predicates are not known in advance; we study the insert-only model.
+predicates are not known in advance; we study the insert-only model (bounded deletions:
+\apx{app:deletes}).
 
 \paragraph{\omni.} \omni~\cite{omni} maintains, for each attribute $a$, an array of $d$ rows and $w$
 columns with hash functions $h^1,\dots,h^d$, as in a Count-Min sketch~\cite{cm}. Cell $(a,j,k)$ stores
@@ -707,9 +719,9 @@ recurring recipe in that literature too.
 \section{Discussion and Limitations}\label{sec:discussion}
 
 \emph{Streams.} We could not run on the SNMP and CAIDA traces of~\cite{omni}; on streams from the authors'
-generator, their code reproduces the published error levels. \emph{Scope.} Our claims concern \textsc{count} queries in the insert-only model; row samples do not
-survive arbitrary deletions, and the bounded-deletion variant of \omni~\cite{omni-vldbj} deserves a separate
-comparison against deletion-aware samplers.
+generator, their code reproduces the published error levels. \emph{Scope.} Our claims concern \textsc{count} queries. Under the bounded deletions of the journal
+version~\cite{omni-vldbj}, run with its code, RS+C2 is \NumDelROmniVsCalTwoLo--\NumDelROmniVsCalTwoHi$\times$
+more accurate than \omni (\apx{app:deletes}); arbitrary deletions are out of scope.
 \emph{Where the method does not help.} For conjunctions of many predicates the anchor is much larger
 than the answer. The update cost of pair tables grows quadratically in $p$, and selecting tables helps
 only if the workload concentrates on few pairs (Section~\ref{sec:census}). Hash stratification helps only
@@ -730,6 +742,8 @@ structural reason: per-cell samples can only be combined by intersection, which 
 heaviest stratum. Composite sketches whose cells hold samples should be evaluated against the
 corresponding global sampling design under a shared memory accounting. An anonymised repository with all
 code and the scripts for every figure, table and number will be made available to the reviewers.
+
+\ifdefined\cameraready\input{acks}\fi
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{references}

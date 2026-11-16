@@ -1,0 +1,5 @@
+0 updates=4194304 inserts=4194304 deletes=0 residue=4194304 peak_live=4194304
+0.33 updates=6962544 inserts=5578424 deletes=1384120 residue=4194304 peak_live=4194305
+1 updates=12582912 inserts=8388608 deletes=4194304 residue=4194304 peak_live=4720279
+3 updates=29360128 inserts=16777216 deletes=12582912 residue=4194304 peak_live=8561491
+9 updates=79691776 inserts=41943040 deletes=37748736 residue=4194304 peak_live=21027227
