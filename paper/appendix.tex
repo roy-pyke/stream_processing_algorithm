@@ -32,8 +32,8 @@ Predicate Counting on Streams''}
 
 \noindent This appendix contains the proofs omitted from the paper (Appendix~\ref{app:proofs}), the
 validation of our \omni implementations against the authors' code (Appendix~\ref{app:validation}), the
-insert-only setting of the journal version of \omni (Appendix~\ref{app:journal}), and additional results
-(Appendix~\ref{app:more}). Section, theorem and table numbers without the prefix ``A'' refer to the paper.
+insert-only setting of the journal version of \omni (Appendix~\ref{app:journal}), its bounded deletions
+(Appendix~\ref{app:deletes}), and additional results (Appendix~\ref{app:more}). Section, theorem and table numbers without the prefix ``A'' refer to the paper.
 
 \appendix
 
@@ -450,9 +450,9 @@ normalized absolute error for the journal version's query procedure and for our 
 % DBDBD 2025 abstract of the journal version; check the figures and metrics of the journal article itself
 % (doi:10.1007/s00778-025-00960-6) before submission and adjust this section if they differ (issue #8).
 The authors of the journal version~\cite{omni-vldbj} report that \omni outperforms adaptive
-Sample-and-Hold (aSH)~\cite{ash}. We cannot rerun its bounded-deletion experiments within our scope, but
-its code (repository \texttt{wiegerpunter/omni-deletes}, commit \texttt{17b969e}), configuration files and
-query generator allow us to examine the insert-only case.
+Sample-and-Hold (aSH)~\cite{ash}. Its code (repository \texttt{wiegerpunter/omni-deletes}, commit
+\texttt{17b969e}), configuration files and query generator allow us to examine the insert-only case here
+and its bounded-deletion setting in Appendix~\ref{app:deletes}.
 
 \emph{Accounting.} The baseline keeps one entry per distinct full tuple and is charged $32p+384$ bits per
 entry: the tuple, five 64-bit fields and two pointers; a reservoir row is charged $64p+32$ bits. For $p=9$
@@ -487,6 +487,64 @@ the baseline is more accurate on every query class whose answer is large enough 
 this is the mechanism behind the published comparison we cannot tell from the code alone; what the code
 shows is that, in the insert-only setting, neither the accounting nor the algorithm of the sampling
 baseline makes it less accurate than \omni in absolute terms.
+
+\section{Bounded Deletions}\label{app:deletes}
+
+\begin{table*}[t]
+\centering\footnotesize\setlength{\tabcolsep}{3pt}
+\caption{Bounded deletions in the setting of the journal version's code: residue of $2^{22}$ records
+(9 Zipf attributes, $\alpha=1.3$), each of $\rho\cdot2^{22}$ further records inserted and deleted again;
+normalized absolute error w.r.t.\ the live records at the end (mean of 3 seeds). \omni and aSH: the
+journal version's code, unmodified.}
+\label{tab:deletes}
+\input{tables/deletes}
+\end{table*}
+
+The journal version of \omni~\cite{omni-vldbj} supports deletions of records inserted before. We run its
+bounded-deletion experiment with its own code for \omni and aSH (built unmodified; our harness only
+supplies the stream and the queries) and compare it with the uniform calibrated designs.
+
+\emph{Stream and queries.} We follow the data pipeline of that version (repository
+\texttt{wiegerpunter/}\allowbreak\texttt{dataset-pipeline}). Its generator draws records with nine Zipf attributes
+($\alpha=1.3$ over $\{1,\dots,10^4\}$). A residue of $2^{22}$ records stays; each of $\rho\cdot2^{22}$
+noise records is inserted and deleted again. The residue identifiers and every noise identifier twice
+are shuffled; the first occurrence of a noise identifier is its insertion and the second its deletion,
+so deletions are spread over the stream. We use the values $\rho\in\{0,0.33,1,3,9\}$ of its
+configuration, up to \NumDelUpdatesNine{} million updates, and its budgets of 10, 25 and 50\,MB. Queries
+are drawn from the residue, by the journal's procedure and by ours; errors are normalized by the
+$2^{22}$ live records at the end.
+
+\emph{Methods.} \omni with deletions uses the code's configuration ($w=28$, $d=3$, 31 bits per hash,
+ingestion and deletion buffers). Each cell keeps the $B$ smallest hashes; after deletions only the
+prefix below the smallest hash the cell has rejected is used. Its over-provisioning factor $\beta$ is
+read from a table that is not in the repository, so it takes its default of 1. aSH decrements the held
+count of a tuple. Our uniform designs need two changes. The counters (C1, pair and triple tables) are
+linear: a deletion decrements them, and they hold the exact hashed counts of the live records. A row is
+stored iff its priority is below the threshold, which only decreases; a deletion therefore removes the
+record's row if it is stored. The store then holds exactly the live records with priority below the
+threshold, a Bernoulli sample of the live data with a known rate, and the calibration is unchanged.
+Rows are removed in batches through a buffer of deleted keys (64 bits each, about one bit per stored
+row, charged to the budget). The sample shrinks when the live set does. Random pairing~\cite{gemulla}
+refills the slots of deleted rows from later insertions and ours does not, but when the live set falls
+after its peak, as here, both end with about live/peak of their capacity. Ours fills \NumDelHeldOne\%,
+\NumDelHeldThree\% and \NumDelHeldNine\% of the store for $\rho=1,3,9$, where the live set peaks at
+\NumDelPeakOne, \NumDelPeakThree{} and \NumDelPeakNine{} times the residue (for $\rho=0.33$ it never
+exceeds the residue). \omni loses valid samples in the same proportion: for $\rho=9$ the memory it reports at the
+end is \NumDelOmniMemNine\% of that without deletions. The stratified design would need thresholds from
+insertion counts, which deletions do not lower; we do not evaluate it here.
+
+\emph{Results.} RS+C2 is \NumDelROmniVsCalTwoLo--\NumDelROmniVsCalTwoHi$\times$ more accurate than
+\omni on our record-sampled queries and \NumDelJOmniVsCalTwoLo--\NumDelJOmniVsCalTwoHi$\times$ on
+the journal-style queries, and \NumDelRAshVsCalTwoLo--\NumDelRAshVsCalTwoHi$\times$ more accurate
+than aSH (Table~\ref{tab:deletes}). From $\rho=0$ to $\rho=9$ the error grows by a factor
+\NumDelRGrowthCalTwoLo--\NumDelRGrowthCalTwoHi{} for RS+C2, \NumDelRGrowthOmniLo--\NumDelRGrowthOmniHi{}
+for \omni and \NumDelRGrowthAshLo--\NumDelRGrowthAshHi{} for aSH: all three lose through the smaller
+sample, and the anchors of the calibrated designs stay exact. In mean relative error over the
+journal-style queries, the metric of that version, single runs of \omni range from \NumDelMreOmniLo{} to
+\NumDelMreOmniHi{} (median \NumDelMreOmniMed), as in some runs a few near-empty conjunctions receive
+estimates in the hundreds, and those of RS+C2 from \NumDelMreCalTwoLo{} to \NumDelMreCalTwoHi{} (median
+\NumDelMreCalTwoMed). Arbitrary deletions, under which every bounded-memory sample can be emptied,
+remain out of scope.
 
 \section{Additional Results}\label{app:more}
 

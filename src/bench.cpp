@@ -6,7 +6,7 @@
 //   bench del   <base.bin> <ops.bin> <workload.txt> <out.csv> <name> <mem_mb> <seed> <spec>...
 //               update stream with deletions (bin/mkdelstream): ops.bin = "UPDS" | u64 m | m x int32,
 //               +(i+1) inserts row i of base.bin, -(i+1) deletes it; uniform cs specs only (RS, RS+C1/2/3),
-//               1024 x 64 bits of pending-delete buffer are charged to the budget (CoStrata::remove)
+//               a pending-delete buffer of max(1024, M/64) x 64 bits is charged to the budget (CoStrata::remove)
 // Method specs (all sized to the same memory budget of mem_mb * 8e6 bits):
 //   res            uniform row reservoir
 //   uss            Unbiased Space-Saving on full tuples
@@ -613,7 +613,6 @@ int main(int argc, char** argv) {
         double mem_mb = atof(argv[7]);
         uint64_t seed = strtoull(argv[8], 0, 10);
         uint64_t bits = (uint64_t)(mem_mb * 8e6);
-        const uint64_t pend_cap = 1024;
         Ctx cx;
         cx.qs = &qs;
         for (int ai = 9; ai < argc; ai++) {
@@ -623,6 +622,11 @@ int main(int argc, char** argv) {
                 continue;
             }
             std::string info;
+            // pending-delete buffer: max(1024, M / 64) keys of 64 bits (about 1 bit per row), charged
+            CoStrata* s0 = make_cs(sp, d, bits, seed * 7919 + 4, cx, info);
+            if (!s0) { fprintf(stderr, "budget too small for %s\n", sp.raw.c_str()); continue; }
+            uint64_t pend_cap = std::max<uint64_t>(1024, s0->M / 64);
+            delete s0;
             CoStrata* s = make_cs(sp, d, bits - CoStrata::delete_bits(pend_cap), seed * 7919 + 4, cx, info);
             if (!s) { fprintf(stderr, "budget too small for %s\n", sp.raw.c_str()); continue; }
             s->enable_deletes(pend_cap);
@@ -648,8 +652,9 @@ int main(int argc, char** argv) {
                         mem_mb, (unsigned long long)seed, i, o.est[i], o.ht[i], o.sd[i], o.cm[i], o.m[i], o.wmax[i], o.wa[i], o.va[i],
                         o.wanc[i]);
             char buf[240];
-            snprintf(buf, sizeof buf, ";held=%llu;M=%llu;live=%llu;deletes=%llu;rows_deleted=%llu;flushes=%llu;compactions=%llu",
-                     (unsigned long long)s->size, (unsigned long long)s->M, (unsigned long long)s->N, (unsigned long long)s->deletes,
+            snprintf(buf, sizeof buf, ";held=%llu;M=%llu;live=%llu;buffer=%llu;deletes=%llu;rows_deleted=%llu;flushes=%llu;compactions=%llu",
+                     (unsigned long long)s->size, (unsigned long long)s->M, (unsigned long long)s->N, (unsigned long long)pend_cap,
+                     (unsigned long long)s->deletes,
                      (unsigned long long)s->rows_deleted, (unsigned long long)s->pend_flushes, (unsigned long long)s->compactions);
             info += buf;
             printf("DRUN,%s,%s,%g,%llu,%u,%zu,%.3f,%.2f,%.2f,%.3f,%s\n", name.c_str(), sp.raw.c_str(), mem_mb, (unsigned long long)seed, d.p,

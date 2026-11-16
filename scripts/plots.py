@@ -532,14 +532,23 @@ if os.path.exists("results/agg_deletes.csv"):
                 g_ = [T.loc[(m_, max(percs)), key] / T.loc[(m_, 0.0), key] for m_ in sorted(dm.mem.unique())
                       if (m_, max(percs)) in T.index and (m_, 0.0) in T.index]
                 put(f"Del{tag}Growth{mtag}", np.array(g_), 1)    # error at the largest deletion ratio / no deletions
+    # mean relative error of the journal-style queries, per single run (heavy-tailed for OmniSketch:
+    # a few near-empty conjunctions receive estimates in the hundreds in some runs)
+    for key, mtag in (("s2", "Omni"), ("ash", "Ash"), ("res", "Res"), ("rsc2", "CalTwo")):
+        r_ = dl[dl.method == key].mrej
+        if len(r_):
+            NUM[f"DelMre{mtag}Lo"], NUM[f"DelMre{mtag}Hi"], NUM[f"DelMre{mtag}Med"] = (f"{x:.2f}" for x in (r_.min(), r_.max(), r_.median()))
+    if "mem_mb" in dm.columns and max(percs) > 0:
+        sm = dm[dm.method == "s2"].pivot_table(index="mem", columns="perc", values="mem_mb")
+        NUM["DelOmniMemNine"] = f"{100 * (sm[max(percs)] / sm[0.0]).mean():.0f}"   # memory in use at the end, % of no deletions
     if "held" in dm.columns:
         h = dm[dm.method == "rsc2"].assign(frac=lambda x: x.held / x.M)
         for x in percs:
             r_ = h[h.perc == x].frac
             if len(r_):
                 NUM[f"DelHeld{str(x).replace('.', 'p').replace('0p33', 'Third').replace('9p0', 'Nine').replace('3p0', 'Three').replace('1p0', 'One').replace('0p0', 'Zero')}"] = f"{100 * r_.mean():.0f}"
-    if os.path.exists("results/deletes/streams.txt"):
-        for ln in open("results/deletes/streams.txt"):
+    if os.path.exists("results/deletes_streams.txt"):
+        for ln in open("results/deletes_streams.txt"):
             m_ = re.match(r"([\d.]+) updates=(\d+) inserts=(\d+) deletes=(\d+) residue=(\d+) peak_live=(\d+)", ln)
             if m_:
                 x, upd, peak, res_ = float(m_.group(1)), int(m_.group(2)), int(m_.group(6)), int(m_.group(5))

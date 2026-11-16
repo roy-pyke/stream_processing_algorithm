@@ -11,7 +11,8 @@
 #             ash  their adaptive Sample-and-Hold, their code
 #             cs:0:1e9[...]  our uniform designs RS, RS+C2, RS+C3 with deletions (bench del)
 #   budgets   10, 25, 50 MB (their ramVals), seeds 1-3 (= their repetition)
-# Results: results/deletes/<perc>.<mem>.<seed>.<method>.{csv,log}; scripts/deletes.py aggregates them.
+# Results: results/deletes/<perc>.<mem>.<seed>.<method>.{csv,log} and results/deletes_streams.txt (updates, peak live);
+# scripts/deletes.py aggregates them.
 # Usage: scripts/run_deletes.sh [parallel_jobs]    (scripts/setup_omni_deletes.sh first)
 set -u
 cd "$(dirname "$0")/.."
@@ -27,8 +28,10 @@ SEEDS=${SEEDS:-"1 2 3"}
 [ -s data/del_base.bin ] || "$JH/bin/java" -Xmx2g -cp "$CP" omni.DeletesHarness gen data/del_base.bin $((NRES * 10)) 9 1.3 || exit 1
 for perc in $PERCS; do
   if [ ! -s work/del_$perc.ops ]; then
-    if [ -s data/del_res.bin ]; then bin/mkdelstream data/del_base.bin $NRES $perc 25 work/del_$perc.ops || exit 1
-    else bin/mkdelstream data/del_base.bin $NRES $perc 25 work/del_$perc.ops data/del_res.bin || exit 1; fi
+    res=""; [ -s data/del_res.bin ] || res=data/del_res.bin
+    bin/mkdelstream data/del_base.bin $NRES $perc 25 work/del_$perc.ops $res > work/del_$perc.txt || exit 1
+    grep -v "^$perc " results/deletes_streams.txt 2>/dev/null > work/del_streams.tmp; sed "s/^/$perc /" work/del_$perc.txt >> work/del_streams.tmp
+    sort -g work/del_streams.tmp > results/deletes_streams.txt
   fi
 done
 if [ ! -s work/delres.wl ]; then

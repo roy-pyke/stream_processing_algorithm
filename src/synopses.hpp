@@ -1061,7 +1061,8 @@ struct CoStrata {
     // data with a known rate, which the anchors calibrate as before. Rows are found in batches: the
     // keys (priority, tuple hash) of deleted records that pass the test are buffered, and one pass over
     // the store removes them when the buffer is full, before a compaction and in finalize(). The
-    // buffer (64 bits per key) is charged to the budget. (The stratified design would need thresholds
+    // buffer (64 bits per key; bench del uses max(1024, M / 64) keys, so a flush scans 64 rows per
+    // buffered deletion) is charged to the budget. (The stratified design would need thresholds
     // from insertion counts, which deletions do not lower; not implemented.)
     std::vector<uint64_t> pend;
     uint64_t pend_cap = 0, deletes = 0, pend_flushes = 0, rows_deleted = 0;
@@ -1096,25 +1097,28 @@ struct CoStrata {
         if (pend.empty()) return;
         pend_flushes++;
         std::sort(pend.begin(), pend.end());
+        std::vector<char> used(pend.size(), 0);
+        size_t left = pend.size();
         std::vector<uint32_t> rowbuf(p);
-        for (uint64_t s = 0; s < size;) {
+        for (uint64_t s = 0; s < size && left > 0;) {
             for (uint32_t a = 0; a < p; a++) rowbuf[a] = col[a][s];
             uint64_t k = del_key(u[s], rowbuf.data());
-            auto it = std::lower_bound(pend.begin(), pend.end(), k);
-            if (it != pend.end() && *it == k) {
-                pend.erase(it);
+            size_t i = (size_t)(std::lower_bound(pend.begin(), pend.end(), k) - pend.begin());
+            while (i < pend.size() && pend[i] == k && used[i]) i++;
+            if (i < pend.size() && pend[i] == k) {
+                used[i] = 1;
+                left--;
                 size--;
                 rows_deleted++;
                 if (s != size) {
                     for (uint32_t a = 0; a < p; a++) col[a][s] = col[a][size];
                     u[s] = u[size];
                 }
-                if (pend.empty()) break;
                 continue;
             }
             s++;
         }
-        pend.clear(); // keys of rows evicted before their deletion
+        pend.clear(); // the rest: keys of rows evicted before their deletion
     }
     void compact() {
         compactions++;
