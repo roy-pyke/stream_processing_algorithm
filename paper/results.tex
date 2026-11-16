@@ -6,7 +6,7 @@
 \centering
 \includegraphics[width=\textwidth]{figs/nae_vs_mem.pdf}
 \caption{Normalized absolute error on record-sampled queries with $k\ge2$ predicates versus memory
-(mean of 5 seeds, 3 for DMV; Hydra: one run, five-attribute streams only; lower is better).
+(mean of 5 seeds; Hydra: one run, five-attribute streams only; lower is better).
 ``\omni (best)'' is the best of \NumOmniFamilySize{} variants, chosen separately for every point.}
 \label{fig:nae}
 \Description{Log-log plots of error versus memory for seven streams; the sample-based methods fall with memory, OmniSketch flattens.}
@@ -14,8 +14,8 @@
 
 \begin{table*}[t]
 \centering\small
-\caption{Normalized absolute error, record-sampled queries with $k\ge2$ predicates (mean of 5 seeds, 3 for
-DMV; Hydra: one run). Bold: best method per column and budget. ``\omni (best)'': best of
+\caption{Normalized absolute error, record-sampled queries with $k\ge2$ predicates (mean of 5 seeds; Hydra:
+one run). Bold: best method per column and budget. ``\omni (best)'': best of
 \NumOmniFamilySize{} variants, including our implementation with the authors' parameters.}
 \label{tab:main}
 \input{tables/main_acc}

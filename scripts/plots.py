@@ -173,7 +173,7 @@ for ax in axes[-1]:
 for ax in axes[:, 0]:
     ax.set_ylabel("normalized abs. error")
 hs_, ls__ = [], []
-for ax in axes.flat:                     # Hydra exists only in the synthetic panels
+for ax in axes.flat:                     # Hydra is missing in some panels: collect the legend from all
     for h_, l_ in zip(*ax.get_legend_handles_labels()):
         if l_ not in ls__:
             hs_.append(h_); ls__.append(l_)
@@ -280,13 +280,26 @@ for ds, tag in [("unif_5M", "Unif"), ("taxi", "Taxi"), ("zipf10_5M", "ZipfTen")]
         NUM[f"JavaFlat{tag}"] = fnum(s.loc[10.0] / s.loc[50.0], 2) if 10.0 in s.index and 50.0 in s.index else "??"
         r = P["res"].loc[ds]
         NUM[f"ResFlat{tag}"] = fnum(r.loc[10.0] / r.loc[50.0], 2) if 10.0 in r.index and 50.0 in r.index else "??"
-# Hydra (5-attribute synthetic streams only)
+# Hydra: 5-attribute Zipf streams, and (scripts/run_hydra.sh with HYDRA_REAL=1) Taxi and MAWI
 if "hydra" in P.columns:
-    hyi = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0] != "unif_5M"]
+    hyi = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0].startswith("zipf")]
     put("ResVsHydra", (P["res"] / P["hydra"]).loc[hyi], 1)            # > 1: Hydra more accurate than the reservoir
     put("OmniAnyVsHydra", (P["omnibest"] / P["hydra"]).loc[hyi], 1)
     put("HydraVsCalTwo", (P["hydra"] / col(P, RSC2)).loc[hyi], 2)     # > 1: RS+C2 more accurate than Hydra
     put("HydraVsCalThree", (P["hydra"] / col(P, RSC3)).loc[hyi], 2)
+    hyr = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0] in ("taxi", "mawi")]
+    if hyr:
+        put("ResVsHydraReal", (P["res"] / P["hydra"]).loc[hyr], 1)
+        put("OmniAnyVsHydraReal", (P["omnibest"] / P["hydra"]).loc[hyr], 1)
+        put("HydraVsCalTwoReal", (P["hydra"] / col(P, RSC2)).loc[hyr], 1)
+        put("HydraVsCsReal", (P["hydra"] / col(P, CS2)).loc[hyr], 1)
+        if USSC3 in P.columns:
+            put("HydraVsUssCalThreeReal", (P["hydra"] / P[USSC3]).loc[hyr], 1)
+        hr_ = acc[(acc.method == "hydra") & acc.dataset.isin(["taxi", "mawi"])]
+        for ds_, t_ in (("taxi", "Taxi"), ("mawi", "Mawi")):
+            x_ = hr_[hr_.dataset == ds_]
+            if len(x_):
+                NUM[f"TpHydra{t_}"] = f"{1e3 / x_.ns_per_rec.median():.3f}"   # million records/s (accuracy runs, 4 in parallel)
     hrun = acc[acc.method == "hydra"]
     if len(hrun):
         NUM["TpHydraLo"], NUM["TpHydraHi"] = f"{1e3 / hrun.ns_per_rec.max():.2f}", f"{1e3 / hrun.ns_per_rec.min():.2f}"
@@ -332,7 +345,7 @@ for key_, tag_ in [(CSH3, "CshThree"), (USSC3, "UssCalThree")]:
         put("ResVs" + tag_, (P["res"] / P[key_]).loc[nonunif], 1)
         NUM[tag_ + "WorstFactor"] = fnum((P[key_] / P[rowfam].min(axis=1)).loc[nonunif].max(), 1)
         if "hydra" in P.columns:
-            hyi_ = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0] != "unif_5M"]
+            hyi_ = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0].startswith("zipf")]
             put("HydraVs" + tag_, (P["hydra"] / P[key_]).loc[hyi_], 2)
         for ds_, t2 in [("mawi", "Mawi"), ("taxi", "Taxi"), ("dmv", "Dmv"), ("zipf15_5M", "ZipfFifteen")]:
             if ds_ in DATASETS:

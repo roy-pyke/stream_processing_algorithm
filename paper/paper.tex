@@ -639,7 +639,7 @@ Zipf with $\alpha\in\{1.0,1.3,1.5\}$ (frequency ranks assigned by a random permu
 (zones, times, payment and binned amounts; \apx{app:more}). (iii)~\emph{MAWI}: 11.33 million IPv4 packets
 of a backbone trace~\cite{mawi}, 10 attributes (addresses, ports, protocol, length, prefixes, TTL, flags).
 (iv)~\emph{DMV}: 12.54 million New York vehicle registrations~\cite{dmv}, the table used
-to benchmark selectivity estimators~\cite{naru}, 15 categorical attributes, three budgets and three seeds.
+to benchmark selectivity estimators~\cite{naru}, 15 categorical attributes.
 (v)~\emph{Census}: the 1990 US census extract~\cite{census}, 2.46 million records, 68 attributes, for the
 wide-stream experiments. The SNMP and CAIDA traces of~\cite{omni} require registration; Taxi matches SNMP
 in size and number of attributes, and MAWI is a backbone trace like CAIDA. Full tuples are 97--100\%
@@ -660,7 +660,7 @@ with probability $1/2$, and equalities from the record; 100 queries per $k$.
 $\mathrm{NAE}=\frac1{|\mathcal Q|}\sum_q|\hat f(q)-f(q)|/N$, by default on record-sampled queries with
 $k\ge2$ (the workload of~\cite{omni}) with equal weight per $k$, and the mean relative error of anchored
 queries grouped by the frequency of the rarest predicate. Every configuration is run with 5 seeds (3 for
-the range, Census and DMV experiments) and we report means. Budgets range from 0.5 to 50\,MB. Timings are
+the range and Census experiments) and we report means. Budgets range from 0.5 to 50\,MB. Timings are
 medians of 3 runs on one core of an Apple M4 Pro, one job at a time, with the stream in memory.
 
 \input{results}
