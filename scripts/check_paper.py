@@ -9,7 +9,8 @@
   - \\begin / \\end environments and braces are balanced, $ signs are paired
   - every \\input and \\includegraphics file exists
   - double-anonymous review: no link to the authors' own repository
-  - if paper/paper.pdf exists (scripts/build_paper.sh): the body ends within 12 pages
+  - if paper/paper.pdf exists (scripts/build_paper.sh): the body ends within 12 pages (references may
+    start at the top of page 13)
 Exit status 1 if anything is wrong.
 """
 import os
@@ -109,7 +110,14 @@ if os.path.exists(pdf) and shutil.which("pdftotext"):
         i += 1
     ref_page = next((k + 1 for k, pg in enumerate(pages) if re.search(r"^REFERENCES\s*$", pg, re.M | re.I)), None)
     print(f"paper.pdf: {len(pages)} pages, references start on page {ref_page}")
-    if ref_page is None or ref_page > 12:
+    body_ok = ref_page is not None and ref_page <= 12
+    if ref_page == 13:   # allowed if page 13 holds nothing of the body before the reference list
+        before = re.split(r"^REFERENCES\s*$", pages[12], maxsplit=1, flags=re.M | re.I)[0]
+        lines = [ln.strip() for ln in before.splitlines()]
+        lines = [ln for ln in lines if ln and not ln.isdigit() and not ln.startswith("Counters for Marginals")]
+        body_ok = not lines
+        print("page 13 before the references:", lines[:3] if lines else "nothing")
+    if not body_ok:
         problem("the body of paper.pdf exceeds 12 pages (or the reference list was not found)")
 print(f"{len(used)} number macros used, {sum(map(len, labels.values()))} labels, {len(cited)} citations; problems: {bad}")
 sys.exit(1 if bad else 0)

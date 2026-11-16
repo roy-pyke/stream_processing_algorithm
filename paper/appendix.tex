@@ -40,7 +40,8 @@ insert-only setting of the journal version of \omni (Appendix~\ref{app:journal})
 \section{Proofs}\label{app:proofs}
 
 Throughout, the hash functions and the stream are fixed, and probabilities are over the record
-priorities. The anchor $c^\star$ of a query is a function of the counters, which are determined by the
+priorities, which are independent of all hash functions; only Proposition~\ref{prop:pair} and part (c)
+of Theorem~\pref{thm:calbound} also consider the randomness of the pair-table hash function. The anchor $c^\star$ of a query is a function of the counters, which are determined by the
 stream and the hash functions; it does not depend on the priorities, so conditioning on it introduces no
 selection bias.
 
@@ -79,8 +80,9 @@ which is at most $e^{-\rho n/8}+2e^{-\epsilon^2\rho n}$,
 using the multiplicative Chernoff bound $\Pr[k<(1-\frac12)\E k]\le e^{-\E k/8}$ for the binomial $k$
 (the event $k=0$ is included). For a uniform sample of fixed size $M$ out of $N$ (a reservoir), the sampled
 records of $c^\star$ are again, conditionally on $k$, a uniform $k$-subset, and $k$ is hypergeometric,
-for which the same Chernoff bound holds~\cite{hoeffding}; so (a) and Corollary~\pref{cor:samples} hold
-with $\rho=M/N$.
+for which the same Chernoff bound holds~\cite{hoeffding}; so, with $\rho=M/N$, the conditional
+unbiasedness, the tail bound and Corollary~\pref{cor:samples} hold, and the bias is
+$-f\Pr[k=0]\in[-f(1-\rho)^n,0]$, since now $\Pr[k=0]=\binom{N-n}M/\binom NM\le(1-\rho)^n$.
 
 \paragraph{Corollary~\pref{cor:samples}.} If $\rho n\ge\ln(3/\delta)/\epsilon^2$ then
 $2e^{-\epsilon^2\rho n}\le2\delta/3$, and if moreover $\epsilon\le1/3$, then $\rho n\ge9\ln(3/\delta)\ge
@@ -105,18 +107,102 @@ which is the claim.
 \paragraph{(c) Collisions.} Let $c^\star$ be the pair cell (or any lighter cell addressed by $q$) and
 $Z=n-f$. Then $f(1-f/n)=fZ/(f+Z)\le\min(f,Z)$. Every record whose value pair differs from the query's
 collides with probability at most $1/w_2$, so $\E Z\le(N-f)/w_2$, and by Markov's inequality
-$Z\le(N-f)/(\delta'w_2)$ with probability at least $1-\delta'$ over the hash function. Substituting in (b)
-and taking a union bound proves (c).
+$Z\le(N-f)/(\delta'w_2)$ with probability at least $1-\delta'$ over the hash function. On this event,
+which depends on the hash functions only, (b) applies conditionally on the hash functions, because the
+priorities are independent of them; this proves (c).
 
 \paragraph{Remarks.} The analysis assumes Poisson sampling at thresholds that do not depend on the
-priorities. For \cs, whose threshold $B$ is chosen by the budget control, Theorem~\pref{thm:unbiased}
-shows that the HT sums $\hat f_{\mathrm{HT}}$ and $W$ remain unbiased, but the tail bound is stated for
-fixed thresholds only. For conjunctions with more predicates than the order of the tables, $n$ can be much
+priorities; Appendix~\ref{app:budget} extends (b) to the threshold chosen by the budget control of \cs.
+The anchor is a set of records (a C1 bucket, a pair or triple cell, or the stream); a dyadic range anchor
+can count a record in several cover cells, the analysis would then need these multiplicities, and we
+state no bound for it.
+For conjunctions with more predicates than the order of the tables, $n$ can be much
 larger than $f$, and the bound is additive in $n$; Cormode, Dickens and Woodruff~\cite{projfreq} show that
 for column subsets revealed after the data, many projected-frequency problems need space exponential in
 the number of columns, so a guarantee relative to $f$ for every subset is out of reach in polynomial
 space. Our guarantee is relative to $f$ exactly where an exact (up to collisions) table addresses all of
 the query's attributes.
+
+\subsection{Tail bound under budget control}\label{app:budget}
+
+In \cs the final threshold $B$ depends on the priorities, so the sampled records are not independent.
+Let $n_r=\nstar_r(N)$ be the final effective stratum size of record $r$ (a function of the stream and
+the hash functions) and $z_r=u_rn_r$. For a threshold $b>0$ let $I_r(b)=\mathbf 1[z_r<b]$,
+$\pi_r(b)=\min(1,b/n_r)$ and, for a set $A$ of records, $H_A(b)=\sum_{r\in A}I_r(b)/\pi_r(b)$. The
+synopsis queried with final threshold $B$ holds exactly the records with $z_r<B$: such a record passes
+every test, since counters only grow and $B$ only shrinks, and every other record fails the final test.
+Its HT sums are therefore $H_A(B)$. For a \emph{fixed} $b$ the indicators
+$I_r(b)$ are independent with means $\pi_r(b)$.
+
+\begin{lemma}[Threshold floor]\label{lem:floor}
+For $t\le N$ and $b>0$ let $\mu_t(b)=\sum_{r\le t}\min(1,b/\nstar_r(t))$, the expected number of the first
+$t$ records that pass the test~\pref{eq:sample} at time $t$ with threshold $b$. If
+$(1+\theta)\max_{t\le N}\mu_t(b)\le K$ for some $\theta>0$, then
+$\Pr[B<b]\le N\exp\bigl(-\theta^2K/((1+\theta)(2+\theta))\bigr)$.
+\end{lemma}
+\begin{proof}
+$B$ decreases only at compactions. If a compaction at time $t$ sets $B$ below $b$, then the
+$(K{+}1)$-st smallest value $u_s\nstar_s(t)$ among the stored rows is below $b$, so at least $K+1$ of the
+first $t$ records satisfy $u_r\nstar_r(t)<b$. For fixed $t$ these $t$ events are independent with total
+mean $\mu_t(b)\le K/(1+\theta)$; raising the mean to exactly $K/(1+\theta)$ by adding independent
+indicators can only increase the count, and the Chernoff bound
+$\Pr[X\ge(1+\theta)\E X]\le\exp(-\theta^2\E X/(2+\theta))$ gives probability at most
+$\exp(-\theta^2K/((1+\theta)(2+\theta)))$. The event is defined for every deterministic $t$, whether or not
+a compaction happens at $t$, so a union bound over $t\le N$ completes the proof.
+\end{proof}
+
+For a stream whose stratum structure is stable over time, $\nstar_r(t)$ grows roughly in proportion to
+$t$ and $\mu_t(b)\approx\mu_N(b)=\sum_r\pi_r(b)$, the expected sample size at threshold $b$; the lemma then
+places $b^-$ where the expected final sample size is about $K/(1+\theta)$. The multiplicative bound is
+loose when many records have rate 1; a Bernstein version with variance $\sum\pi(1-\pi)$ is tighter. The
+lemma covers ingestion of one stream; after a merge, Proposition~\ref{prop:budget} still applies given
+$B\ge b^-$, but the floor has to be established for the parts.
+
+\begin{proposition}[Theorem~\pref{thm:calbound}(b) under budget control]\label{prop:budget}
+Fix a query $q$, its anchor $c^\star$ with $n=n_{c^\star}$, $f=f(q)$ and $R=f/n$, and a deterministic
+$b^->0$. Let $\rho=\min(1,b^-/\max_{r\in c^\star}n_r)$, the smallest rate in $c^\star$ at threshold $b^-$,
+assume $\rho n\ge1$, and let $\eta=(\rho n)^{-1/2}$, $J=\lceil\ln(1/\rho)/\ln(1+\eta)\rceil$ and
+$L'=\ln(4(J+1)/\delta)$. With probability at least $1-\delta-(J+1)e^{-\rho n/8}-\Pr[B<b^-]$,
+\[
+ |\hat f_{\mathrm C}-f|\;\le\;2(1+\eta)^2\Bigl(3\sqrt{f(1-R)L'/\rho}+\tfrac23L'/\rho\Bigr).
+\]
+\end{proposition}
+\begin{proof}
+If $\rho=1$, every record of $c^\star$ is sampled whenever $B\ge b^-$ and the estimate is exact. Otherwise
+let $b_j=b^-(1+\eta)^j$ for $j=0,\dots,J$; then $b_J\ge\max_{r\in c^\star}n_r$, and every threshold
+$B\ge b_J$ samples $c^\star$ completely. The rate of every record of $c^\star$ at $b_j$ is at least $\rho$.
+
+\emph{Sandwich.} For $b\le B\le b'$ and every record, $\max(1,n_r/B)$ lies between $(b/b')\max(1,n_r/b)$
+and $(b'/b)\max(1,n_r/b')$, and $I_r(b)\le I_r(B)\le I_r(b')$. Hence, deterministically,
+$(b/b')\,H_A(b)\le H_A(B)\le(b'/b)\,H_A(b')$ for every set $A$; in particular, for $b_j\le B\le b_{j+1}$,
+\begin{equation}\label{eq:sandwich}
+ \bigl|H_A(B)-|A|\bigr|\;\le\;(1+\eta)\max_{i\in\{j,j+1\}}\bigl|H_A(b_i)-|A|\bigr|+\eta\,|A|.
+\end{equation}
+
+\emph{Fixed thresholds.} Let $A_1=q\cap c^\star$ and $A_0=c^\star\setminus q$, with $|A_1|=f$ and
+$|A_0|=n-f$. At each $b_j$, $H_{A}(b_j)-|A|$ is a sum of independent centred terms bounded by $1/\rho$ with
+variance at most $(1/\rho-1)|A|$, so by Bernstein's inequality, with failure probability $\delta/(2(J+1))$
+for each $A\in\{A_0,A_1\}$ and each $j$, $|H_A(b_j)-|A||\le d_A=\sqrt{2|A|L'/\rho}+\frac23L'/\rho$. By
+Maurer's inequality, $W(b_j)=H_{c^\star}(b_j)>n/2$ except with probability $e^{-\rho n/8}$ for each $j$.
+Assume all these events and $B\ge b^-$, which fails with the stated probability.
+
+\emph{Bound.} If $B\ge b_J$ the estimate is exact. Otherwise $b_j\le B<b_{j+1}$ for some $j$. As in the
+proof of (b), $\hat f_{\mathrm C}-f=nD/W(B)$ with
+$D=(1-R)\bigl(H_{A_1}(B)-f\bigr)-R\bigl(H_{A_0}(B)-(n-f)\bigr)$, and $W(B)\ge W(b_j)/(1+\eta)>n/(2(1+\eta))$.
+By~\eqref{eq:sandwich},
+$|D|\le(1+\eta)\bigl((1-R)d_{A_1}+Rd_{A_0}\bigr)+\eta\bigl((1-R)f+R(n-f)\bigr)$. Now
+$(1-R)\sqrt f+R\sqrt{n-f}=\sqrt{f(1-R)}\,(\sqrt{1-R}+\sqrt R)\le\sqrt{2f(1-R)}$, so
+$(1-R)d_{A_1}+Rd_{A_0}\le2\sqrt{f(1-R)L'/\rho}+\frac23L'/\rho$; and $(1-R)f+R(n-f)=2f(1-R)$ with
+$\eta f(1-R)=\sqrt{f(1-R)}\sqrt{R(1-R)/\rho}\le\frac12\sqrt{f(1-R)/\rho}$. Altogether
+$|D|\le(1+\eta)\bigl(3\sqrt{f(1-R)L'/\rho}+\frac23L'/\rho\bigr)$, using $L'\ge1$, and
+$|\hat f_{\mathrm C}-f|\le2(1+\eta)|D|$.
+\end{proof}
+
+Compared with the fixed-threshold bound, the price of the data-dependent threshold is the leading
+constant $6(1+\eta)^2$ instead of $2\sqrt{2(1-\rho)}$ (at most $9.4$ for $\rho n\ge16$), the term
+$\ln(J+1)=\frac12\ln(\rho n)+\ln\ln(1/\rho)+O(1)$ in $L'$, the failure term $(J+1)e^{-\rho n/8}$, which
+makes the statement informative once $\rho n\ge8\ln((J+1)/\delta)$, and the use of the rate at the floor
+$b^-$ of Lemma~\ref{lem:floor} instead of the realised rate. Nothing in the argument uses how $B$ is chosen beyond $B\ge b^-$.
 
 \subsection{Proof of Theorem~\pref{thm:hold}}
 
@@ -168,7 +254,8 @@ applies: now $u_r<\tau_t\le\tau_t(T)$ in $\mathcal D(u)$ at all times, and at a 
 with result $B'$ we have $z_r<B'$; if $z_r$ were not below the $(K{+}1)$-st smallest value $q$ of
 $\{z_r\}\cup Z$, then $B'\le q\le z_r$, a contradiction; so $z_r$ is among the $K$ smallest, both
 $(K{+}1)$-st smallest values equal the $K$-th smallest of $Z$, and the runs coincide. Hence
-$\tau^0_t=\tau_t>u_r$. (Ties among $z$-values have probability zero.)
+$\tau^0_t=\tau_t>u_r$. Both directions use only the strict inequality $z_r<B'$, so ties among the
+other values, which 32-bit priorities make possible, do not matter.
 
 \paragraph{Unbiasedness of the row-level estimate.} Since $u_r$ is uniform and independent of $u_{-r}$,
 $\Pr[r\in S_t\mid u_{-r}]=\Pr[u_r<\tau^0_t\mid u_{-r}]=\tau^0_t$, and $\tau_t=\tau^0_t$ on that event.
@@ -211,18 +298,50 @@ violates, it collides with the query value in all $d$ rows, which has probabilit
 predicate, independently. For a two-predicate query on values with marginal frequencies $f_1,f_2$,
 $N_1=f_1+f_2-2f(q)$.
 
-\subsection{Small-count intervals}
+\subsection{Intervals}\label{app:ci}
 
-Under Poisson sampling at fixed thresholds every matching record $r$ is retained with probability
-$\pi_r\ge\pi_q$ (Section~\pref{sec:ci}), so $\Pr[m=0]=\prod_{r\in q}(1-\pi_r)\le e^{-\pi_qf}$. If
-$f>U=\ln(1/\alpha)/\pi_q$, the probability of observing $m=0$ is below $\alpha$, so reporting $[0,U]$
-when $m=0$ errs with probability at most $\alpha$ for every $f$. For $m\ge1$, the calibrated estimate is a
-weighted sum of (approximately Poisson) indicators, and the gamma interval of Fay and
-Feuer~\cite{fayfeuer} for such sums uses the estimate $y$, its variance estimate $v$ and the largest weight
-$w_M$: the lower limit is the $\alpha/2$ quantile of a gamma distribution with mean $y$ and variance $v$,
-the upper limit the $1-\alpha/2$ quantile of one with mean $y+w_M$ and variance $v+w_M^2$. We use
-$w_M=(n_{c^\star}/W_{c^\star})/\pi_q$, the calibrated weight of one more matching record at the smallest
-rate, and truncate to the hard bounds $[m,n_{c^\star}]$.
+\paragraph{Rule of three.} Under Poisson sampling at a fixed threshold every matching record $r$ is
+retained with probability $\pi_r\ge\pi_q$ (Section~\pref{sec:ci}), so
+$\Pr[m=0]=\prod_{r\in q}(1-\pi_r)\le e^{-\pi_qf}$. If $f>U=\ln(2/\alpha)/\pi_q$, the probability of
+observing $m=0$ is below $\alpha/2$, so reporting $[0,U]$ when $m=0$ errs with probability at most
+$\alpha/2$ for every $f$; this is the zero-count case of the gamma interval below, which also spends
+$\alpha/2$ per tail. The bound remains exact under budget control. Write $\pi_q(b)$ and $U(b)$ for the
+values at threshold $b$; with the final counters they are deterministic and monotone in $b$. Let $b^*$
+satisfy $\pi_q(b^*)f=\ln(2/\alpha)$ (if $f<\ln(2/\alpha)$, then $U\ge\ln(2/\alpha)>f$ always). Then
+$f>U(B)$ implies $B>b^*$, and since the sample at threshold $B$ contains the sample at $b^*$
+(Appendix~\ref{app:budget}), $m=0$ at $B$ implies $m=0$ at $b^*$. Hence
+$\Pr[m=0\text{ and }f>U(B)]\le\Pr[m(b^*)=0]\le\alpha/2$ for any data-dependent $B$. By the
+characterisation of its final state (proof of Theorem~\pref{thm:hold}), the same holds for \csh.
+
+\paragraph{Gamma interval.} For $m\ge1$, the calibrated estimate is a weighted sum of (approximately
+Poisson) indicators, and the gamma interval of Fay and Feuer~\cite{fayfeuer} for such sums uses the
+estimate $y$, its variance estimate $v$ and the largest weight $w_M$: the lower limit is the $\alpha/2$
+quantile of a gamma distribution with mean $y$ and variance $v$, the upper limit the $1-\alpha/2$
+quantile of one with mean $y+w_M$ and variance $v+w_M^2$. We use $w_M=(n_{c^\star}/W_{c^\star})/\pi_q$, the
+calibrated weight of one more matching record at the smallest rate, and truncate to the hard bounds
+$[m,n_{c^\star}]$.
+
+\paragraph{The rarer side.} The gamma approximation is designed for the rare side of a count: its lower
+limit rests on the variance estimate, which is unreliable when the estimate is formed by few records.
+For the calibrated estimator the failure also occurs at the other end. If every sampled row of the anchor
+cell matches, $\hat f_{\mathrm C}=n_{c^\star}$ and the linearised variance
+$(n_{c^\star}/W_{c^\star})^2\bigl[(1-\hat R)^2A+\hat R^2(V_{c^\star}-A)\bigr]$ (with $A$ the variance mass of
+the matching rows and $V_{c^\star}$ that of the cell) vanishes, so the interval collapses to the anchor
+count. Since $\hat f_{\mathrm C}=n_{c^\star}\hat W_q/W_{c^\star}$, the non-matching rows of the cell give
+$\hat g=n_{c^\star}-\hat f_{\mathrm C}=n_{c^\star}(W_{c^\star}-\hat W_q)/W_{c^\star}$, an estimate of the
+number $g=n_{c^\star}-f$ of non-matching records with the same linearised variance and the same
+structure. This needs an anchor that is a set of records: a C1 bucket, a cell of a pair or triple table,
+or the whole stream. (A dyadic anchor sums cover cells, and a record that collides into two of them is
+counted twice, so $g$ counts memberships rather than records; for such anchors we use the matches side
+only.) Every record $r$ of the anchor cell has $\nstar_r\le n_a$, where $n_a=\min(G,C)$ for a C1 anchor
+with count $C$ (all records of the cell share it) and, for any other anchor, $n_a=\min(G,n_{\max})$ with
+$n_{\max}=\min_a\max_b C_1[a][b]$, because the smallest C1 count of a record is at most the largest count
+of every attribute. Hence each non-matching record is retained with probability at least
+$\pi_a=\min(1,B/n_a)$, and the argument for $m=0$, including its extension to budget control, gives: if no
+sampled row of the cell fails the query, $g\le\ln(2/\alpha)/\pi_a$ errs with probability at most
+$\alpha/2$. In general we apply the construction to the smaller of $\hat f_{\mathrm C}$ and $\hat g$ and
+map an interval for $g$ to one for $f$ by $f=n_{c^\star}-g$. The rule-of-three parts are thus exact
+bounds; the gamma parts are approximate, which Section~\pref{sec:cires} evaluates.
 
 \section{Validation against the Authors' Code}\label{app:validation}
 
@@ -396,7 +515,8 @@ repetition. \textsc{USS+C$i$} and \textsc{Coco+C$i$} add the counter rows (and p
 to USS and CocoSketch and estimate with Eq.~\pref{eq:cal}; ``\csh (C3)'' is the hold mode with pair and
 triple tables ($\phi_2=\phi_3=0.15$). The allocation exponent $\gamma$ replaces $n$ by $n^\gamma$ in
 Eq.~\pref{eq:nstar}, interpolating between equal allocation per stratum ($\gamma=1$) and uniform
-sampling ($\gamma=0$). Timings ran on one performance core (16\,GB RAM, Linux, GCC~16.2).
+sampling ($\gamma=0$). Timings ran on an Apple M4 Pro (24\,GB RAM, macOS~26, Apple clang~17, \texttt{-O3 -mcpu=native}); macOS
+does not pin threads, so the timing script runs one job at a time on an otherwise idle machine.
 
 \paragraph{Table share.} The NAE is flat in the share of the pair tables between $\phi_2=0.1$ and $0.5$
 (Table~\ref{tab:ablation}), as the analysis of Section~\pref{sec:cal} predicts; triple tables help when

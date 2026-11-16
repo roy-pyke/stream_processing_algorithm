@@ -137,7 +137,9 @@ if os.path.exists("results/agg_hydra.csv"):
 if os.path.exists("results/agg_acc2.csv"):   # CocoSketch and index-charged runs (scripts/run_presub.sh main)
     a2_ = pd.read_csv("results/agg_acc2.csv")
     acc = pd.concat([acc, a2_[a2_.method.isin([COCO, COCOC1, COCOC2]) | a2_.method.str.endswith(IX)]], ignore_index=True)
-DATASETS = [d for d in DATASETS if d in set(acc.dataset)]
+if os.path.exists("results/agg_dmv.csv"):    # full DMV matrix (scripts/run_presub.sh dmvfull) replaces the partial one
+    acc = pd.concat([acc[acc.dataset != "dmv"], pd.read_csv("results/agg_dmv.csv")], ignore_index=True)
+DATASETS =[d for d in DATASETS if d in set(acc.dataset)]
 REAL = [d for d in DATASETS if d in ("taxi", "mawi", "dmv")]
 # Primary metric: NAE on record-sampled queries with k >= 2 predicates (workload definition of the OmniSketch paper).
 kmax = 6
@@ -171,7 +173,7 @@ for ax in axes[-1]:
 for ax in axes[:, 0]:
     ax.set_ylabel("normalized abs. error")
 hs_, ls__ = [], []
-for ax in axes.flat:                     # Hydra exists only in the synthetic panels
+for ax in axes.flat:                     # Hydra is missing in some panels: collect the legend from all
     for h_, l_ in zip(*ax.get_legend_handles_labels()):
         if l_ not in ls__:
             hs_.append(h_); ls__.append(l_)
@@ -278,14 +280,27 @@ for ds, tag in [("unif_5M", "Unif"), ("taxi", "Taxi"), ("zipf10_5M", "ZipfTen")]
         NUM[f"JavaFlat{tag}"] = fnum(s.loc[10.0] / s.loc[50.0], 2) if 10.0 in s.index and 50.0 in s.index else "??"
         r = P["res"].loc[ds]
         NUM[f"ResFlat{tag}"] = fnum(r.loc[10.0] / r.loc[50.0], 2) if 10.0 in r.index and 50.0 in r.index else "??"
-# Hydra (5-attribute synthetic streams only)
+# Hydra: 5-attribute Zipf streams, and (scripts/run_hydra.sh with HYDRA_REAL=1) Taxi and MAWI
 if "hydra" in P.columns:
-    hyi = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0] != "unif_5M"]
+    hyi = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0].startswith("zipf")]
     put("ResVsHydra", (P["res"] / P["hydra"]).loc[hyi], 1)            # > 1: Hydra more accurate than the reservoir
     put("OmniAnyVsHydra", (P["omnibest"] / P["hydra"]).loc[hyi], 1)
     put("HydraVsCalTwo", (P["hydra"] / col(P, RSC2)).loc[hyi], 2)     # > 1: RS+C2 more accurate than Hydra
     put("HydraVsCalThree", (P["hydra"] / col(P, RSC3)).loc[hyi], 2)
-    hrun = acc[acc.method == "hydra"]
+    hyr = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0] in ("taxi", "mawi")]
+    if hyr:
+        put("HydraVsResReal", (P["hydra"] / P["res"]).loc[hyr], 1)        # > 1: the reservoir is more accurate
+        put("HydraVsOmniAnyReal", (P["hydra"] / P["omnibest"]).loc[hyr], 1)
+        put("HydraVsCalTwoReal", (P["hydra"] / col(P, RSC2)).loc[hyr], 0)
+        put("HydraVsCsReal", (P["hydra"] / col(P, CS2)).loc[hyr], 1)
+        if USSC3 in P.columns:
+            put("HydraVsUssCalThreeReal", (P["hydra"] / P[USSC3]).loc[hyr], 1)
+        hr_ = acc[(acc.method == "hydra") & acc.dataset.isin(["taxi", "mawi"])]
+        for ds_, t_ in (("taxi", "Taxi"), ("mawi", "Mawi")):
+            x_ = hr_[hr_.dataset == ds_]
+            if len(x_):   # records per second, two significant digits (accuracy runs, four JVMs at a time)
+                NUM[f"TpHydra{t_}"] = f"{float(f'{1e9 / x_.ns_per_rec.median():.2g}'):,.0f}".replace(",", "\\,")
+    hrun = acc[(acc.method == "hydra") & acc.dataset.str.startswith("zipf")]
     if len(hrun):
         NUM["TpHydraLo"], NUM["TpHydraHi"] = f"{1e3 / hrun.ns_per_rec.max():.2f}", f"{1e3 / hrun.ns_per_rec.min():.2f}"
 if os.path.exists("results/time/hydra.log"):
@@ -330,7 +345,7 @@ for key_, tag_ in [(CSH3, "CshThree"), (USSC3, "UssCalThree")]:
         put("ResVs" + tag_, (P["res"] / P[key_]).loc[nonunif], 1)
         NUM[tag_ + "WorstFactor"] = fnum((P[key_] / P[rowfam].min(axis=1)).loc[nonunif].max(), 1)
         if "hydra" in P.columns:
-            hyi_ = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0] != "unif_5M"]
+            hyi_ = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0].startswith("zipf")]
             put("HydraVs" + tag_, (P["hydra"] / P[key_]).loc[hyi_], 2)
         for ds_, t2 in [("mawi", "Mawi"), ("taxi", "Taxi"), ("dmv", "Dmv"), ("zipf15_5M", "ZipfFifteen")]:
             if ds_ in DATASETS:
@@ -481,7 +496,7 @@ if os.path.exists("results/time/time.log"):
         if ln.startswith("TIME,"):
             f_ = ln.strip().split(",")
             rows.append(dict(dataset=f_[1], method=f_[2], mem=float(f_[3]), p=int(f_[4]), ns=float(f_[6]), mrps=float(f_[7])))
-    t = pd.DataFrame(rows)
+    t = pd.DataFrame(rows).drop_duplicates(["dataset", "method", "mem"])   # a few configurations are timed twice; keep the first
     qrows = []
     if os.path.exists("results/time/query.log"):
         for ln in open("results/time/query.log"):
@@ -539,6 +554,12 @@ if os.path.exists("results/time/time.log"):
             if meth in tp.columns:
                 r = tp[meth] / tp[omni_cols].max(axis=1)
                 NUM[f"Tp{tag}VsOmniLo"], NUM[f"Tp{tag}VsOmniHi"] = fnum(r.min(), 1), fnum(r.max(), 1)
+        if RSC2 in tp.columns and CS2 in tp.columns:   # RS+C2 and CoStrata against the fastest OmniSketch, per budget
+            r2 = pd.concat([tp[RSC2] / tp[omni_cols].max(axis=1), tp[CS2] / tp[omni_cols].max(axis=1)])
+            for mem_, tag_ in ((1.0, "One"), (50.0, "Fifty")):
+                rr_ = r2[r2.index.get_level_values("mem") == mem_]
+                if len(rr_):
+                    NUM[f"TpCalTwoVsOmni{tag_}Lo"], NUM[f"TpCalTwoVsOmni{tag_}Hi"] = fnum(rr_.min(), 1), fnum(rr_.max(), 1)
         if "omnij" in tp.columns and "omnip" in tp.columns:
             r = tp["omnip"] / tp["omnij"]
             NUM["TpOursVsJavaLo"], NUM["TpOursVsJavaHi"] = fnum(r.min(), 1), fnum(r.max(), 1)
@@ -784,40 +805,48 @@ if CS2 + IX in P.columns:
     put("OmniAnyVsIndexed", rr, 1)
 
 # ---------------------------------------------------------------- small-count confidence intervals
-if os.path.exists("results/agg_acc2.csv"):
-    c2 = pd.read_csv("results/agg_acc2.csv")
+if os.path.exists("results/agg_ci.csv"):   # scripts/run_presub.sh ci: runs with the anchor columns
+    c2 = pd.read_csv("results/agg_ci.csv")
     c2 = c2[c2.method.isin([CS1, CS2, RSC1, RSC2, CSH]) & c2.ci95.notna()]
     cvm = c2.groupby(["method", "mem", "dataset"], as_index=False)[["cov95", "cov95_small", "cov95_big", "ci95", "ci95_small",
-                                                                     "ci95_big", "ci95_zero", "frac_zero", "ci_relwidth"]].mean()
+                                                                     "ci95_big", "ci95_zero", "ci95_f", "ci95_f_big", "frac_zero",
+                                                                     "ci_relwidth", "ci_relwidth_f"]].mean()
     cva = cvm.groupby(["method", "mem"], as_index=False).mean(numeric_only=True)   # mean over the streams
     with open("paper/tables/coverage.tex", "w") as f:
         f.write("\\begin{tabular}{llrrrrrrr}\n\\toprule\n")
-        f.write(" & & \\multicolumn{3}{c}{normal approx.} & \\multicolumn{4}{c}{rule of three / gamma} \\\\\n")
-        f.write("\\cmidrule(lr){3-5}\\cmidrule(lr){6-9}\n")
-        f.write("Method & MB & all & $f{<}100$ & $f{\\ge}100$ & all & $f{<}100$ & $f{\\ge}100$ & $m{=}0$ \\\\\n\\midrule\n")
+        f.write(" & & \\multicolumn{2}{c}{normal} & \\multicolumn{1}{c}{matches} & \\multicolumn{4}{c}{rarer side (Sec.~\\ref{sec:ci})} \\\\\n")
+        f.write("\\cmidrule(lr){3-4}\\cmidrule(lr){5-5}\\cmidrule(lr){6-9}\n")
+        f.write("Method & MB & $f{<}100$ & $f{\\ge}100$ & $f{\\ge}100$ & all & $f{<}100$ & $f{\\ge}100$ & $m{=}0$ \\\\\n\\midrule\n")
         for key, lab in [(CS2, "\\cs"), (RSC2, "RS+C2"), (CSH, "\\csh")]:
-            for i, x in enumerate([0.5, 1.0, 10.0, 50.0]):
+            for i, x in enumerate([1.0, 10.0, 50.0]):
                 s = cva[(cva.method == key) & (cva.mem == x)]
                 if not len(s):
                     continue
                 s = s.iloc[0]
                 pc = lambda v: f"{100 * v:.0f}" if np.isfinite(v) else "--"
                 f.write((lab if i == 0 else "") + f" & {x:g} & " + " & ".join(pc(s[c]) for c in
-                        ["cov95", "cov95_small", "cov95_big", "ci95", "ci95_small", "ci95_big", "ci95_zero"]) + " \\\\\n")
+                        ["cov95_small", "cov95_big", "ci95_f_big", "ci95", "ci95_small", "ci95_big", "ci95_zero"]) + " \\\\\n")
             if key != CSH:
                 f.write("\\addlinespace[2pt]\n")
         f.write("\\bottomrule\n\\end{tabular}\n")
     note("interval coverage by stream", cvm)
     main3 = cvm[cvm.method.isin([CS2, RSC2, CSH])]
-    NUM["CiNormSmallHi"] = f"{100 * main3.cov95_small.max():.0f}"
     NUM["CiNormSmallOneMb"] = f"{100 * cva[(cva.method == CS2) & (cva.mem == 1.0)].cov95_small.iloc[0]:.0f}"
     NUM["CiNormAllOneMb"] = f"{100 * cva[(cva.method == CS2) & (cva.mem == 1.0)].cov95.iloc[0]:.0f}"
-    NUM["CiNewLo"], NUM["CiNewHi"] = f"{100 * main3.ci95.min():.0f}", f"{100 * main3.ci95.max():.0f}"
-    NUM["CiNewSmallLo"] = f"{100 * main3.ci95_small.min():.0f}"
-    NUM["CiNewBigLo"], NUM["CiNewBigHi"] = f"{100 * main3.ci95_big.min():.0f}", f"{100 * main3.ci95_big.max():.0f}"
-    NUM["CiNewZeroLo"] = f"{100 * main3.ci95_zero.min():.0f}"
+    # coverage bounds in the text: lower bounds rounded down, upper bounds rounded up (one decimal; 100 stays 100)
+    lo1 = lambda v: f"{np.floor(1000 * v + 1e-9) / 10:.1f}"
+    hi1 = lambda v: "100" if v >= 1 - 1e-12 else f"{np.ceil(1000 * v - 1e-9) / 10:.1f}"
+    NUM["CiNormSmallHi"] = hi1(main3.cov95_small.max())
+    NUM["CiNewLo"], NUM["CiNewHi"] = lo1(main3.ci95.min()), hi1(main3.ci95.max())
+    NUM["CiNewSmallLo"] = lo1(main3.ci95_small.min())
+    NUM["CiNewBigLo"], NUM["CiNewBigHi"] = lo1(main3.ci95_big.min()), hi1(main3.ci95_big.max())
+    NUM["CiNewZeroLo"] = lo1(main3.ci95_zero.min())
     NUM["CiFracZeroOneMb"] = f"{100 * cva[(cva.method == CS2) & (cva.mem == 1.0)].frac_zero.iloc[0]:.0f}"
     NUM["CiWidthTen"] = f"{cva[(cva.method == CS2) & (cva.mem == 10.0)].ci_relwidth.iloc[0]:.2f}"
+    NUM["CiOneSidedBigLo"] = lo1(main3.ci95_f_big.min())
+    ws = main3.loc[main3.ci95_f_big.idxmin()]
+    NUM["CiOneSidedBigWorst"] = DS_LABEL.get(ws.dataset, ws.dataset)
+    NUM["CiWidthGain"] = f"{100 * ((main3.ci_relwidth / main3.ci_relwidth_f).median() - 1):.0f}"
     worst = main3.loc[main3.ci95.idxmin()]
     NUM["CiNewWorstStream"] = DS_LABEL.get(worst.dataset, worst.dataset)
     NUM["CiNewWorstMem"] = f"{worst.mem:g}"
@@ -966,28 +995,28 @@ if os.path.exists("results/agg_pairs.csv"):
         if CS2 in g_.index:
             loss.append(np.nanmin(sel4) / g_[CS2])
     put("PairRndLoss", loss, 1)
-    if os.path.exists("results/time/presub_time.log"):
+    if os.path.exists("results/time/time.log"):
         tt_ = []
-        for ln in open("results/time/presub_time.log"):
+        for ln in open("results/time/time.log"):
             if ln.startswith("TIME,census"):
                 f_ = ln.strip().split(",")
                 tt_.append(dict(dataset=f_[1], method=f_[2], mrps=float(f_[7])))
-        tt_ = pd.DataFrame(tt_)
+        tt_ = pd.DataFrame(tt_).drop_duplicates(["dataset", "method"])
         if len(tt_):
             g_ = tt_[tt_.dataset == "census_p68"].set_index("method").mrps
             for key, tag in [(CS1, "COne"), (CS2, "All"), (f"{CS2}/psel=wl/np=68", "SelP"), (f"{CS2}/psel=wl/np=272", "SelFourP")]:
                 if key in g_.index:
                     NUM[f"PairTp{tag}"] = f"{g_[key]:.1f}" if g_[key] >= 1 else f"{g_[key]:.2f}"
 
-# ---------------------------------------------------------------- throughput of the new configurations (this machine, sequential)
-if os.path.exists("results/time/presub_time.log"):
+# ---------------------------------------------------------------- throughput of CocoSketch, dyadic ranges (scripts/run_timing.sh)
+if os.path.exists("results/time/time.log"):
     tt2 = []
-    for ln in open("results/time/presub_time.log"):
+    for ln in open("results/time/time.log"):
         if ln.startswith("TIME,"):
             f_ = ln.strip().split(",")
             tt2.append(dict(dataset=f_[1], method=f_[2], mem=float(f_[3]), mrps=float(f_[7])))
-    tt2 = pd.DataFrame(tt2)
-    note("throughput of the presubmission configurations (Mrec/s)", tt2.pivot_table(index=["dataset", "mem"], columns="method", values="mrps"))
+    tt2 = pd.DataFrame(tt2).drop_duplicates(["dataset", "method", "mem"])
+    note("throughput of CocoSketch / range configurations (Mrec/s)", tt2.pivot_table(index=["dataset", "mem"], columns="method", values="mrps"))
     rt = tt2[tt2.dataset.str.endswith("_range")].pivot_table(index=["dataset", "mem"], columns="method", values="mrps")
     if len(rt):
         oc_ = [c for c in rt.columns if c.startswith("omnid")]
@@ -997,7 +1026,7 @@ if os.path.exists("results/time/presub_time.log"):
             put("RangeTpDyCost", rt[CS2] / rt[DY2], 2)
             NUM["RangeTpDyLo"], NUM["RangeTpDyHi"] = f"{rt[DY2].min():.1f}", f"{rt[DY2].max():.1f}"
             NUM["RangeTpOmniLo"], NUM["RangeTpOmniHi"] = f"{rt[oc_].min().min():.1f}", f"{rt[oc_].max().max():.1f}"
-    ct = tt2[~tt2.dataset.str.contains("range|census")].pivot_table(index=["dataset", "mem"], columns="method", values="mrps")
+    ct = tt2[tt2.dataset.isin(["taxi", "mawi"])].pivot_table(index=["dataset", "mem"], columns="method", values="mrps")
     for key, tag in [(COCO, "Coco"), (COCOC2, "CocoCalTwo"), ("uss", "Uss"), (USSC2, "UssCalTwo"), (CS2, "Cs")]:
         if key in ct.columns:
             NUM[f"TpNew{tag}Lo"], NUM[f"TpNew{tag}Hi"] = f"{ct[key].min():.1f}", f"{ct[key].max():.1f}"

@@ -1148,6 +1148,10 @@ struct CoStrata {
         // wmax = 1 / pi_q, where pi_q is the smallest inclusion probability that any matching record
         // can have (from the lightest C1 cell of the query); the calibration factor is hajek / ht
         double m = 0, wmax = 0;
+        // the anchor cell: sample weight W_a and variance mass V_a of its stored rows, and
+        // wanc = 1 / pi_a, where pi_a is the smallest inclusion probability that any record of the
+        // anchor cell can have (that of its C1 bucket for a C1 anchor; otherwise the global floor)
+        double wa = 0, va = 0, wanc = 0;
     };
     inline bool row_matches(const Query& q, uint64_t s) const {
         for (size_t i = 0; i < q.attrs.size(); i++) {
@@ -1156,8 +1160,11 @@ struct CoStrata {
         }
         return true;
     }
-    // Count, weight and variance mass of the dyadic anchor of range predicate i of q.
-    void range_anchor(const Query& q, size_t i, double& n, double& W, double& V) const {
+    // Count, weight and variance terms of the dyadic anchor of range predicate i of q. A stored row in
+    // m >= 1 cover cells (m >= 2 only through hash collisions) enters W with weight m / pi; for the
+    // linearised variance sum (1/pi^2 - 1/pi) (y - R m)^2 of the ratio estimator, V = sum c m^2 and
+    // Vy = sum c y m, with c = 1/pi^2 - 1/pi and y = [row matches q].
+    void range_anchor(const Query& q, size_t i, double& n, double& W, double& V, double& Vy) const {
         uint32_t a = q.attrs[i];
         int32_t ri = dy.ridx[a];
         uint32_t La = dy.L[ri];
@@ -1178,7 +1185,7 @@ struct CoStrata {
                 n += dy.c[pc[j]];
             }
         }
-        W = V = 0;
+        W = V = Vy = 0;
         const uint32_t* ca = col[a].data();
         for (uint64_t s = 0; s < size; s++) {
             uint32_t m = 0;
@@ -1188,9 +1195,10 @@ struct CoStrata {
                 m += c == pc[j];
             }
             if (m) {
-                double ip = invpi[s];
+                double ip = invpi[s], c = ip * ip - ip;
                 W += m * ip;
-                V += m * (ip * ip - ip);
+                V += (double)m * m * c;
+                if (row_matches(q, s)) Vy += m * c;
             }
         }
     }
@@ -1267,16 +1275,18 @@ struct CoStrata {
         }
         double n1 = nb; // lightest C1 cell: bounds the inclusion probability of matching records
         double Wa = best == SIZE_MAX ? 0.0 : Wb[best], Va = best == SIZE_MAX ? 0.0 : Vb[best];
+        bool dyadic = false; // the anchor is a dyadic cover (a multiset of records)
+        double Vya = 0;
         if (q.has_range()) {
             mc.anchor(q.eq_part(), nb, Wa, Va);
             if (dy.on())
                 for (size_t k = 0; k < q.attrs.size(); k++) {
                     if (q.is_eq(k) || dy.ridx[q.attrs[k]] < 0) continue;
-                    double n, W, V;
-                    range_anchor(q, k, n, W, V);
-                    if (n < nb) nb = n, Wa = W, Va = V;
+                    double n, W, V, Vy;
+                    range_anchor(q, k, n, W, V, Vy);
+                    if (n < nb) nb = n, Wa = W, Va = V, Vya = Vy, dyadic = true;
                 }
-            if (nb >= (double)N) nb = (double)N, Wa = Wtot, Va = Vtot; // the stream size is an anchor too
+            if (nb >= (double)N) nb = (double)N, Wa = Wtot, Va = Vtot, dyadic = false; // the stream size is an anchor too
         } else
             mc.anchor(q, nb, Wa, Va); // lighter pair/triple cell, if any
         Est e;
@@ -1288,11 +1298,21 @@ struct CoStrata {
         if (lf > 0 && G < nsq) nsq = G;
         double piq = std::min(1.0, Bcur / nsq);
         e.wmax = 1.0 / piq;
+        e.wa = Wa;
+        e.va = Va;
+        if (dyadic) e.wanc = 0; // no retention floor for the non-matching part of a multiset anchor
+        else if (best != SIZE_MAX && nb == n1 && Wa == Wb[best]) e.wanc = e.wmax; // the C1 bucket is the anchor
+        else {
+            double nsf = sfun((double)nmax_c1); // no record has a larger n*: the floor of all inclusion probabilities
+            if (lf > 0 && G < nsf) nsf = G;
+            e.wanc = 1.0 / std::min(1.0, Bcur / nsf);
+        }
         if (Wa > 0) {
             double R = num / Wa;
             double scale = (double)nb / Wa;
             e.hajek = (double)nb * R;
-            double var = scale * scale * ((1 - R) * (1 - R) * A + R * R * std::max(0.0, Va - A));
+            double var = dyadic ? scale * scale * (A - 2 * R * Vya + R * R * Va)
+                                : scale * scale * ((1 - R) * (1 - R) * A + R * R * std::max(0.0, Va - A));
             e.sd_hajek = std::sqrt(std::max(0.0, var));
         } else {
             e.hajek = 0;
@@ -1528,7 +1548,17 @@ struct CoStrataH {
     struct Est {
         double hajek, ht, sd_hajek, cm;
         double m = 0, wmax = 0; // held count of the matching entries (a lower bound); see CoStrata::Est
+        double wa = 0, va = 0, wanc = 0;
     };
+    uint32_t nmax_c1() const { // min over attributes of the largest C1 count
+        uint32_t r = UINT32_MAX;
+        for (uint32_t a = 0; a < p; a++) {
+            uint32_t mx = 0;
+            for (uint32_t b = 0; b < w; b++) mx = std::max(mx, cnt[(size_t)a * w + b]);
+            r = std::min(r, mx);
+        }
+        return r;
+    }
     Est estimate(const Query& q) const {
         double num = 0, A = 0, held = 0;
         for (uint64_t s = 0; s < size; s++) {
@@ -1562,6 +1592,14 @@ struct CoStrataH {
         if (lf > 0 && G < nsq) nsq = G;
         double tq = std::min(1.0, Bcur / nsq);
         e.wmax = 1.0 / tq;
+        e.wa = Wa;
+        e.va = Va;
+        if (best != SIZE_MAX && nb == n1 && Wa == Wb[best]) e.wanc = e.wmax;
+        else {
+            double nsf = (double)nmax_c1();
+            if (lf > 0 && G < nsf) nsf = G;
+            e.wanc = 1.0 / std::min(1.0, Bcur / nsf);
+        }
         if (Wa > 0) {
             double R = num / Wa;
             double scale = (double)nb / Wa;

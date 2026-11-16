@@ -44,16 +44,16 @@ $\epsilon\,n_{c^\star}$---relative to the anchor cell instead of the stream---on
 $O(\epsilon^{-2}\log\delta^{-1})$ sampled rows; with pair tables the variance of a two-predicate count is
 bounded independently of the answer. The same counters drive \cs, a coordinated hash-stratified row sampler
 under a hard memory budget, and its sample-and-hold variant \csh, both of which we prove unbiased under
-budget control. Confidence intervals built from the retention probability of the lightest cell raise
-the coverage of small counts from at most \NumCiNormSmallHi\% (normal intervals) to at least
-\NumCiNewSmallLo\%. The design
+budget control. Confidence intervals built from retention-probability floors cover at least
+\NumCiNewLo\% of the answers on every stream and budget, where normal intervals cover at most
+\NumCiNormSmallHi\% of the small counts. The design
 extends to range predicates through dyadic counters, merges across partitions, and scales to wide
 streams by selecting pair tables. On six streams, calibrated row samples are
 \NumOmniAnyVsBestRowLo--\NumOmniAnyVsBestRowHi$\times$ more accurate than the best of
 \NumOmniFamilySize{} configurations of the sketch-in-sketch synopsis \omni at equal memory, including the
-authors' implementation, which we run unmodified and port bit-exactly. With tuple aggregation they also
-beat Hydra, and calibration makes Unbiased Space-Saving and CocoSketch \NumUssCalTwoVsUssGm$\times$ and
-\NumCocoCalTwoVsCocoGm$\times$ more accurate on average. The update rate is comparable to that of an optimised \omni.
+authors' implementation, which we run unmodified and port bit-exactly. They also beat Hydra,
+by \NumHydraVsCalTwoRealLo--\NumHydraVsCalTwoRealHi$\times$ on the real streams, and calibration makes Unbiased Space-Saving and CocoSketch \NumUssCalTwoVsUssGm$\times$ and
+\NumCocoCalTwoVsCocoGm$\times$ more accurate on average. Their update rate is \NumTpCalTwoVsOmniLo--\NumTpCalTwoVsOmniHi$\times$ that of an optimised \omni.
 \end{abstract}
 
 \begin{CCSXML}
@@ -152,10 +152,10 @@ expected sampled rows; and for pair anchors the error is governed by $\min(f,N/w
 answer (Theorem~\ref{thm:calbound}). Calibration is orthogonal to how rows are chosen.
 \item \textbf{Samplers driven by the same counters (Sections~\ref{sec:costrata}--\ref{sec:hold}).} \cs
 keeps a row if any of its strata would keep it, under a one-parameter hard budget; it is unbiased under
-budget control, loses at most a factor $\sqrt2$ in standard error against uniform sampling, and is exact
+budget control, loses about a factor $\sqrt2$ at most in standard error against uniform sampling, and is exact
 for conjunctions with a rare value. Its sample-and-hold variant \csh counts repeated tuples exactly once
 sampled; we prove that it, too, is unbiased under budget control (Theorem~\ref{thm:hold}).
-\item \textbf{Extensions (Section~\ref{sec:ext}).} Confidence intervals for small counts from the retention probability of the lightest cell; range predicates through dyadic
+\item \textbf{Extensions (Section~\ref{sec:ext}).} Confidence intervals that stay valid for small counts and for answers close to the anchor count; range predicates through dyadic
 counters; merging of synopses built on partitions of the stream; selection of pair tables for wide streams.
 \item \textbf{Sketch-in-sketch through the lens of sampling (Section~\ref{sec:anatomy}).} The intersection
 of \omni's per-cell samples is a uniform sample at the rate of the \emph{heaviest} cell a query touches,
@@ -273,9 +273,10 @@ $\Pr[\,|\hat f_{\mathrm C}-f|>\epsilon n\,]\le 2e^{-\epsilon^2\rho n}+e^{-\rho n
 \]
 \item[(c)] \emph{Collisions.} If $|Q|=2$ and $c^\star$ is the pair cell of a table with a pairwise
 independent hash function into $w_2$ cells (or a lighter cell), then $f(1-f/n)\le\min(f,Z)$, where $Z=n-f$ is the
-number of colliding records and $\E Z\le(N-f)/w_2$; hence, with probability at least
-$1-\delta-\delta'-e^{-\rho n/8}$, the bound of (b) holds with $f(1-f/n)$ replaced by
-$\min\bigl(f,(N-f)/(\delta' w_2)\bigr)$.
+number of colliding records and $\E Z\le(N-f)/w_2$; hence, with probability at least $1-\delta'$
+over that hash function, the bound of (b) holds with $f(1-f/n)$ replaced by
+$\min\bigl(f,(N-f)/(\delta' w_2)\bigr)$, with probability at least $1-\delta-e^{-\rho n/8}$ over the
+priorities.
 \end{enumerate}
 \end{theorem}
 \begin{proof}[Proof sketch]
@@ -288,7 +289,9 @@ $\sum_{r\in c^\star}(I_r/\pi_r-1)(y_r-f/n)$ because $\sum_r(y_r-f/n)=0$: a sum o
 bounded by $1/\rho$, with variance at most $(1/\rho-1)f(1-f/n)$; apply Bernstein's inequality~\cite{concentration}
 to $D$ and Maurer's lower-tail inequality for non-negative summands~\cite{maurer} to
 $W=\sum_r I_r/\pi_r$, which gives $\Pr[W\le n/2]\le e^{-\rho n/8}$. (c) $f(1-f/n)=fZ/(f+Z)$, and
-Markov's inequality bounds $Z$. Details are in \apx{app:proofs}.
+Markov's inequality bounds $Z$. Details are in \apx{app:proofs}; under the budget control of \cs,
+(b) holds with $\rho$ the rate at a deterministic floor of $B$, up to a constant factor and a
+logarithmic term in $L$ (\apx{app:budget}).
 \end{proof}
 
 \begin{corollary}\label{cor:samples}
@@ -301,14 +304,13 @@ Compared with the $\epsilon N$ guarantee of a uniform sample (Proposition~\ref{p
 calibration replaces the stream size by the anchor count. A uniform sample needs
 $\Theta(\epsilon^{-2}\log\delta^{-1})$ rows for error $\epsilon N$; by Corollary~\ref{cor:samples}, applied
 with error parameter $\epsilon N/n_{c^\star}$, a calibrated sample with a fraction $n_{c^\star}/N$ of these
-rows achieves the same. Part~(c) is the high-probability counterpart of the pair-table
+rows achieves the same (for $n_{c^\star}\ge3\epsilon N$). Part~(c) is the high-probability counterpart of the pair-table
 variance bound: for a frequent pair the error is about $\sqrt{N L/(w_2\rho)}$, whatever $f$ is, and it
 decreases as the table widens. For conjunctions of more predicates than the order of the tables, the
-anchor is larger than the answer and the guarantee is additive in $n_{c^\star}$. This is as much as one can
-hope for in general: for column subsets revealed after the data, many projected-frequency problems
-require space exponential in the number of columns~\cite{projfreq}. The guarantee is relative to the
-answer only where an exact table addresses all of the query's attributes, i.e., for $|Q|$ up to the order
-of the tables, whose number $\binom p{|Q|}$ is exponential in that order.
+anchor is larger than the answer and the guarantee is additive in $n_{c^\star}$. For column subsets
+revealed after the data, many projected-frequency problems require space exponential in the number of
+columns~\cite{projfreq}, so a guarantee relative to the answer is in reach only up to the order of the
+tables.
 
 \paragraph{How much memory for counters?} Let a fraction $\phi$ of the budget go to the pair tables,
 so that $w_2\propto\phi$ and $\rho\propto1-\phi$. For queries that calibration cannot help, the
@@ -377,8 +379,8 @@ $\hat V_{\mathrm{C}} = (n_{c^\star}/W_{c^\star})^{2}[(1-\hat R)^2\hat V_{\mathrm
 \hat R^{2}(V_{c^\star}-\hat V_{\mathrm{HT}})]$ with $\hat V_{\mathrm{HT}}=\sum_{s\in S\cap
 q}(1-\pi_s)/\pi_s^2$ and $\hat R=\hat f_{\mathrm{HT}}/W_{c^\star}$.
 
-\paragraph{Guarantees.} We assume that the priorities are i.i.d.\ uniform and independent of the hash
-functions $h_a$.
+\paragraph{Guarantees.} We assume that the priorities are i.i.d.\ uniform and independent of all hash
+functions.
 
 \begin{theorem}[Unbiasedness under budget control]\label{thm:unbiased}
 Fix the stream and a query time. With $\pi_r=\min(1,B/\nstar_r)$ evaluated with the final value of $B$,
@@ -413,9 +415,9 @@ $\E|S|\le(1+\lambda)EB$ and every record has $\pi_r\ge\min\bigl(1,\tfrac{\lambda
 $\pi_r\le B/G+\sum_a B/n_{a,h_a(r_a)}$, and $\sum_r 1/n_{a,h_a(r_a)}$ is the number of non-empty
 buckets of $a$; the lower bound follows from $\pi_r\ge\min(1,B/G)=\min(1,\lambda EB/N)$.
 \end{proof}
-Consequently, for \emph{any} predicate the HT variance $\sum_{r\in q}(1/\pi_r-1)$ of \cs is at most that
-of a Bernoulli sample at a fraction $\lambda/(1+\lambda)$ of the rate that the same expected memory buys:
-with $\lambda=1$, a factor $\sqrt2$ in standard error at most.
+Consequently, when $G=N/(\lambda E)$, for \emph{any} predicate the HT variance $\sum_{r\in q}(1/\pi_r-1)$ of
+\cs is at most that of a Bernoulli sample at a fraction $\lambda/(1+\lambda)$ of the rate $p$ that the same
+expected memory buys: with $\lambda=1$, a factor $\sqrt{(2-p)/(1-p)}\approx\sqrt2$ in standard error.
 
 \begin{proposition}[Rare anchors]\label{prop:rare}
 Let $q$ be a conjunction and $n_q=\min_{a\in Q}n_{a,h_a(v_a)}$ the count of the lightest bucket it
@@ -438,7 +440,7 @@ priority is below the tuple's current threshold $\tau_t=\min(1,B/\nstar_t)$ and 
 later row of the tuple (sample-and-hold~\cite{sah,cm-counting}). When a threshold has dropped below the
 priority of an entry's start row, the entry is re-anchored at the next counted row with priority below the
 new threshold: the counted rows were never tested, so their priorities are unconditioned and the number
-of rows to skip is geometric with parameter $\tau_t$; if it exceeds the count, the entry is dropped. This
+of rows to skip is geometric with parameter $\tau_t$; if no counted row qualifies, the entry is dropped. This
 is the rate adaptation of adaptive sample-and-hold~\cite{ash-insert}; because thresholds only decrease, it
 can be deferred to compactions and to query time. A compaction sets $B$ to the $(K{+}1)$-st smallest
 value of $u_{\text{start}}\cdot\nstar$, re-anchors, and repeats until at most $K$ entries remain (an
@@ -452,8 +454,8 @@ Under the assumptions of Theorem~\ref{thm:unbiased}, let $X_t=c_t-1+1/\tau_t$ if
 entry at query time (count $c_t$, final threshold $\tau_t$) and $X_t=0$ otherwise. Then
 $\E\bigl[\sum_t y_tX_t\bigr]=\sum_t y_t m_t$ for all real $y_t$, where $m_t$ is the multiplicity of $t$;
 the variance is at most that of the row-level HT estimate $\sum_t y_t|S_t|/\tau_t$ with the same
-thresholds; and for a fixed threshold schedule $(1-\tau_t)/\tau_t^2$ is an unbiased estimate of
-$\Var X_t$.
+thresholds; and for a fixed threshold schedule $(1-\tau_t)\mathbf 1[t\text{ holds an entry}]/\tau_t^2$ is an
+unbiased estimate of $\Var X_t$.
 \end{theorem}
 \begin{proof}[Proof sketch]
 \emph{Idealisation.} Give every row its own priority, including the rows counted while their tuple is
@@ -479,19 +481,23 @@ Details are in \apx{app:proofs}.
 
 \subsection{Extensions}\label{sec:ext}
 
-\paragraph{Small-count intervals.}\label{sec:ci} Normal intervals $\hat f_{\mathrm C}\pm1.96\sqrt{\hat
-V_{\mathrm C}}$ fail for rare queries: a query without a sampled match receives the interval $[0,0]$. Two hard bounds are available for free: the number $m$ of
-matching sampled rows (held counts for \csh) is a lower bound on $f$, and the anchor count $n_{c^\star}$ an
-upper bound. Every matching record $r$ satisfies $\nstar_r\le\min(G,n_q)$ (Proposition~\ref{prop:rare}),
-so it is retained with probability at least $\pi_q=\min\bigl(1,B/\min(G,n_q)\bigr)$, and under Poisson
-sampling $\Pr[m=0]\le(1-\pi_q)^f\le e^{-\pi_qf}$. If $m=0$ we therefore report
-\[
-  \bigl[\,0,\ \min\bigl(n_{c^\star},\ \ln(1/\alpha)/\pi_q\bigr)\bigr],
-\]
-a rule of three~\cite{ruleofthree} at the retention probability of the lightest bucket. If $m\ge1$ we use the gamma interval of Fay and Feuer~\cite{fayfeuer} for weighted sums of
-counts around $\hat f_{\mathrm C}$, with variance $\hat V_{\mathrm C}$ and, as the weight of one further
-matching record, the calibrated weight $(n_{c^\star}/W_{c^\star})/\pi_q$; the interval is truncated to
-$[m,n_{c^\star}]$. Section~\ref{sec:cires} shows that this brings small counts close to nominal coverage.
+\paragraph{Intervals.}\label{sec:ci} Normal intervals $\hat f_{\mathrm C}\pm1.96\sqrt{\hat V_{\mathrm C}}$
+fail at both ends of the anchor cell: a query without a sampled match receives $[0,0]$, one matched by
+every sampled row of its anchor $[n_{c^\star},n_{c^\star}]$. The number $m$ of matching sampled rows (held
+counts for \csh) and the anchor count are hard bounds, $m\le f\le n_{c^\star}$. Every matching record $r$
+has $\nstar_r\le\min(G,n_q)$ (Proposition~\ref{prop:rare}), so it is retained with probability at least
+$\pi_q=\min\bigl(1,B/\min(G,n_q)\bigr)$, and under Poisson sampling $\Pr[m=0]\le e^{-\pi_qf}$. If $m=0$ we
+report $\bigl[0,\min\bigl(n_{c^\star},\ln(2/\alpha)/\pi_q\bigr)\bigr]$, a rule of three~\cite{ruleofthree}
+(exact also under budget control, \apx{app:ci}).
+Otherwise we use that the calibrated estimate splits the anchor cell exactly, $\hat f_{\mathrm C}+\hat
+g=n_{c^\star}$, where $\hat g$ estimates the number $g$ of its non-matching records, and work on the rarer
+part. If $\hat f_{\mathrm C}\le n_{c^\star}/2$, we take the gamma interval of Fay and
+Feuer~\cite{fayfeuer} around $\hat f_{\mathrm C}$ with variance $\hat V_{\mathrm C}$ and the calibrated
+weight $(n_{c^\star}/W_{c^\star})/\pi_q$ of one further match. Otherwise we apply the same construction to
+$g$, with $\pi_q$ replaced by the smallest retention probability $\pi_a$ of a record of the anchor
+(\apx{app:ci}), and report $n_{c^\star}$ minus its interval; if no sampled row of the anchor fails the
+query, this is the rule of three $g\le\ln(2/\alpha)/\pi_a$. (Dyadic anchors, which may count a record
+twice, use the matches only.) We truncate to $[m,n_{c^\star}]$.
 
 \paragraph{Range predicates.}\label{sec:range} A row sample evaluates any predicate on its rows, but the
 calibration needs an anchor. For a range predicate $\ell\le r_a\le u$ we keep, for each attribute that
@@ -609,8 +615,8 @@ extension of~\cite{omni} (one sketch per dyadic level of each range attribute, u
 the authors' estimator and a threshold estimator, oracle $B$, 32 bits per stored hash and per non-empty
 cell) in the six configurations $(64,2),(256,2),(1024,2),(256,3),(1024,1),(4096,1)$.
 
-\paragraph{Other baselines.} Hydra~\cite{hydra}: the adaptation shipped with the code of~\cite{omni}, on the
-five-attribute streams only ($2^p-1$ updates per record). USS~\cite{ting-uss} on the full tuple with a
+\paragraph{Other baselines.} Hydra~\cite{hydra}: the adaptation shipped with the code of~\cite{omni}, on
+all streams but DMV ($2^p-1$ updates per record: 31 on the synthetic streams, 4\,095 on Taxi). USS~\cite{ting-uss} on the full tuple with a
 hash index and a heap. CocoSketch~\cite{coco}: the software version of the authors' code, two arrays of
 (full key, count) buckets, the smaller of the two hashed buckets is incremented and takes over the key with
 probability $1/\text{count}$; queries sum matching buckets. aSH: a port of the journal version's sampling
@@ -633,7 +639,7 @@ Zipf with $\alpha\in\{1.0,1.3,1.5\}$ (frequency ranks assigned by a random permu
 (zones, times, payment and binned amounts; \apx{app:more}). (iii)~\emph{MAWI}: 11.33 million IPv4 packets
 of a backbone trace~\cite{mawi}, 10 attributes (addresses, ports, protocol, length, prefixes, TTL, flags).
 (iv)~\emph{DMV}: 12.54 million New York vehicle registrations~\cite{dmv}, the table used
-to benchmark selectivity estimators~\cite{naru}, 15 categorical attributes, three budgets and three seeds.
+to benchmark selectivity estimators~\cite{naru}, 15 categorical attributes.
 (v)~\emph{Census}: the 1990 US census extract~\cite{census}, 2.46 million records, 68 attributes, for the
 wide-stream experiments. The SNMP and CAIDA traces of~\cite{omni} require registration; Taxi matches SNMP
 in size and number of attributes, and MAWI is a backbone trace like CAIDA. Full tuples are 97--100\%
@@ -654,8 +660,8 @@ with probability $1/2$, and equalities from the record; 100 queries per $k$.
 $\mathrm{NAE}=\frac1{|\mathcal Q|}\sum_q|\hat f(q)-f(q)|/N$, by default on record-sampled queries with
 $k\ge2$ (the workload of~\cite{omni}) with equal weight per $k$, and the mean relative error of anchored
 queries grouped by the frequency of the rarest predicate. Every configuration is run with 5 seeds (3 for
-the range, Census and DMV experiments) and we report means. Budgets range from 0.5 to 50\,MB. Timings are
-medians of 3 runs on one core of an Intel Core i5-1245U laptop with the stream in memory.
+the range and Census experiments) and we report means. Budgets range from 0.5 to 50\,MB. Timings are
+medians of 3 runs on one core of an Apple M4 Pro, one job at a time, with the stream in memory.
 
 \input{results}
 
@@ -663,16 +669,13 @@ medians of 3 runs on one core of an Intel Core i5-1245U laptop with the stream i
 
 \paragraph{Synopses for ad-hoc predicates on streams.} Hydra~\cite{hydra} keeps a universal
 sketch~\cite{univmon} per attribute subset and is exponential in $p$; our tables are a Hydra truncated at
-order two or three whose answers are refined by a sample, and the experiments show that this keeps most
-of its accuracy at polynomial cost. \omni~\cite{omni,omni-sr,omni-vldbj} replaces Hydra's subsets by
+order two or three whose answers are refined by a sample, and the experiments show that this is on par
+with Hydra on five attributes and far more accurate on ten or more, at polynomial cost. \omni~\cite{omni,omni-sr,omni-vldbj} replaces Hydra's subsets by
 per-attribute sketches with embedded samples; Section~\ref{sec:anatomy} explains why intersected per-cell
 samples are dominated by rows. To our knowledge neither version is compared with a row sample under an
 accounting of 32 bits per value, nor with multi-objective samples. CocoSketch~\cite{coco} and
 USS~\cite{ting-uss} keep full keys with unbiased replacement and answer partial-key queries by summing;
-calibration improves both. Lower bounds for projected frequencies~\cite{projfreq} show that guarantees
-relative to the answer are not available for arbitrary column subsets in sub-exponential space;
-Theorem~\ref{thm:calbound} is relative to the anchor, which equals the answer only up to the order of the
-tables.
+calibration improves both.
 
 \paragraph{Calibration and precomputed aggregates.} Calibrating samples to known totals is classical in
 survey sampling~\cite{sarndal,calibration}, where the auxiliary totals are fixed by design. AQP\texttt{++}~\cite{aqppp}
@@ -707,33 +710,26 @@ recurring recipe in that literature too.
 generator, their code reproduces the published error levels. \emph{Scope.} Our claims concern \textsc{count} queries in the insert-only model; row samples do not
 survive arbitrary deletions, and the bounded-deletion variant of \omni~\cite{omni-vldbj} deserves a separate
 comparison against deletion-aware samplers.
-\emph{Where the method does not help.} Pair tables help two-predicate queries most; for conjunctions of
-many predicates the anchor is much larger than the answer. Their update cost grows quadratically in $p$;
-selecting tables helps only to the extent that the workload concentrates on few pairs
-(Section~\ref{sec:census}). Hash stratification helps only for rare values of attributes whose tail
-carries little mass.
-\emph{Query latency.} \omni intersects $|Q|d$ sorted lists and answers faster than a scanned row sample;
-the bucket index narrows the gap to \NumQlatIndexVsOmniLo--\NumQlatIndexVsOmniHi$\times$ and costs
-\NumIndexCostLo--\NumIndexCostHi$\times$ in error when charged to the budget (Section~\ref{sec:speed}).
-\emph{Hardware.} Timings ran on single cores of a laptop CPU and, for the configurations added last, of
-an Apple M4 Pro; we did not evaluate multi-core ingestion.
+\emph{Where the method does not help.} For conjunctions of many predicates the anchor is much larger
+than the answer. The update cost of pair tables grows quadratically in $p$, and selecting tables helps
+only if the workload concentrates on few pairs (Section~\ref{sec:census}). Hash stratification helps only
+for rare values of attributes whose tail carries little mass. \emph{Latency and hardware.} \omni answers
+faster than a scanned row sample; the bucket index brings the latency to
+\NumQlatIndexVsOmniLo--\NumQlatIndexVsOmniHi$\times$ \omni's (Section~\ref{sec:speed}). We did not
+evaluate multi-core ingestion.
 
 \section{Conclusion}
 
-For predicate counting over multi-attribute insert-only streams, keeping exact counters for hashed
-low-order marginals and rows for everything else is a simple and effective design: the counters fix the
-scale of an answer to within the anchor cell, the sample supplies the composition of that cell, and the
-same counters shape the sample so that rare values are protected. The estimator comes with bias and tail
-bounds relative to the anchor; the samplers are unbiased under a hard budget; and the design extends to
-small-count intervals, ranges, merging and wide streams. Measured against the sketch-in-sketch design of
-\omni, with the authors' implementation in the loop, calibrated row samples are more accurate at equal
-memory on every non-uniform stream, and the reason is structural: per-cell samples can only be combined by
-intersection, which yields the rate of the heaviest stratum. Composite sketches whose cells contain samples
-should be evaluated against the corresponding global sampling design under a shared memory accounting.
-
-\paragraph{Artifacts.} An anonymised repository with the code of all synopses, the harness for the authors'
-implementation, the stream converters, the workload generator, and the scripts that produce every figure,
-table and number will be made available to the reviewers.
+For predicate counting over multi-attribute insert-only streams, exact counters for hashed low-order
+marginals and rows for everything else are a simple and effective design: the counters fix the scale of an
+answer to within the anchor cell, the sample supplies the composition of that cell, and the same counters
+protect rare values in the sample. The estimator has bias and tail bounds relative to the anchor, also
+under a hard budget, and the samplers are unbiased. Against \omni, with the authors' implementation in
+the loop, calibrated row samples are more accurate at equal memory on every non-uniform stream, for a
+structural reason: per-cell samples can only be combined by intersection, which yields the rate of the
+heaviest stratum. Composite sketches whose cells hold samples should be evaluated against the
+corresponding global sampling design under a shared memory accounting. An anonymised repository with all
+code and the scripts for every figure, table and number will be made available to the reviewers.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{references}

@@ -1,1 +1,11 @@
-HRUN,zipf13_5M,10,1,5,5000000,32.404,6480.86,5.27,8.498,dRoot=3;wRoot=25;dCS=3;wCS=9442
+Depth: 3
+epsCM: 0.4496443130226092
+Width: 8
+B: 5376
+b: 26
+MemUsage: 7.93536E7
+Info, Ram: 80000000 usedRAM: 7.93536E7 B: 5376.0 b: 26.0 width: 8.0 depth: 3.0
+Done with grid search
+d: 3.0 w: 8.0 B: 5376.0 b: 26.0
+d Root: 3.0 w Root: 25.0 d CM: 3.0 w CM: 9442.0
+HRUN,zipf13_5M,10,1,5,5000000,23.369,4673.82,3.16,8.498,dRoot=3;wRoot=25;dCS=3;wCS=9442

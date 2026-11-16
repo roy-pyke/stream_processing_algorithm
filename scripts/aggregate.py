@@ -9,10 +9,20 @@ For every (dataset, method, mem, seed) run we compute, per workload family:
   mre_d{j} mean relative error over queries whose rarest predicate has frequency in [10^j, 10^(j+1))
   mre_k{k} mean relative error over queries with k predicates
   cov95    (CoStrata only) fraction of queries with |est - truth| <= 1.96 * sd
-  ci95     (CoStrata, CoStrata-H; runs with interval diagnostics) coverage of the small-count
-           intervals: rule of three [0, min(n_c, ln(20) / pi_q)] when no sampled row matches, otherwise
-           the Fay-Feuer gamma interval around the calibrated estimate, truncated to [m, n_c]
-           (m = matching sampled rows, n_c = anchor count, both hard bounds on the answer)
+  ci95     (CoStrata, CoStrata-H; runs with interval diagnostics) coverage of the intervals of
+           Section 3.4. The calibrated estimate splits the anchor cell exactly, f_hat + g_hat = n_c,
+           where g counts its non-matching records, and the interval is built on the rarer part:
+           if f_hat <= n_c / 2 (or no sampled row matches), the rule of three
+           [0, min(n_c, ln(2 / alpha) / pi_q)] when m = 0 (the zero-count case of the gamma /
+           Garwood interval, alpha / 2 per tail) and otherwise the Fay-Feuer gamma interval around
+           f_hat; if f_hat > n_c / 2, the same construction for g (rule of three with the
+           inclusion-probability floor pi_a of the anchor's records when every sampled anchor row
+           matches), mapped back by f = n_c - g. The g side needs an anchor that is a set of
+           records; for dyadic anchors, which may count a record in several cover cells, the
+           synopsis reports wanc = 0 and only the matches side is used. Truncated to [m, n_c] (m = matching sampled rows,
+           n_c = anchor count, both hard bounds). Runs without the anchor columns (wa, wanc) get
+           the one-sided version (the matches only).
+  ci95_f   the one-sided version, for comparison
 """
 import glob
 import os
@@ -31,22 +41,42 @@ except ImportError:  # the new intervals need scipy; everything else does not
 ALPHA = 0.05
 
 
-def small_count_ci(est, ht, sd, m, wq, nb):
+def _ff(y, v, wm):
+    """Fay-Feuer gamma interval of a non-negative weighted total y with variance v; wm is the
+    weight of one more contributing record (upper bound only)."""
+    y, v, wm = np.asarray(y, float), np.maximum(np.asarray(v, float), 1e-12), np.asarray(wm, float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        lo = _gamma.ppf(ALPHA / 2, a=y * y / v, scale=v / np.maximum(y, 1e-300))
+        hi = _gamma.ppf(1 - ALPHA / 2, a=(y + wm) ** 2 / (v + wm * wm), scale=(v + wm * wm) / (y + wm))
+    lo = np.where(y > 0, np.where(np.isfinite(lo), lo, y), 0.0)
+    return lo, np.where(np.isfinite(hi), hi, np.inf)
+
+
+def _one_side(y, sd, k, w, scale):
+    """Interval for a part of the anchor cell estimated by y from k >= 0 sampled records: rule of
+    three when k = 0 (each record of the part is sampled with probability >= 1 / w), else Fay-Feuer."""
+    lo, hi = _ff(y, sd ** 2, scale * w)
+    z = k == 0
+    return np.where(z, 0.0, lo), np.where(z, np.log(2 / ALPHA) * w, hi)
+
+
+def small_count_ci(est, ht, sd, m, wq, nb, wa=None, wanc=None):
     """95% intervals for calibrated estimates (see the module docstring); returns lo, hi arrays."""
     est, ht, sd, m, wq, nb = (np.asarray(x, float) for x in (est, ht, sd, m, wq, nb))
-    lo = np.zeros_like(est)
-    hi = np.minimum(nb, np.log(1 / ALPHA) * wq)              # no matching row: P(m = 0) <= exp(-pi_q f)
-    pos = m > 0
-    y, v = est[pos], np.maximum(sd[pos] ** 2, 1e-12)
-    scale = np.where(ht[pos] > 0, est[pos] / np.maximum(ht[pos], 1e-300), 1.0)
-    wm = scale * wq[pos]                                     # calibrated weight of one more matching record
-    with np.errstate(divide="ignore", invalid="ignore"):
-        l_ = _gamma.ppf(ALPHA / 2, a=y * y / v, scale=v / y)
-        h_ = _gamma.ppf(1 - ALPHA / 2, a=(y + wm) ** 2 / (v + wm * wm), scale=(v + wm * wm) / (y + wm))
-    l_ = np.where(np.isfinite(l_), l_, y)
-    lo[pos] = np.maximum(l_, m[pos])
-    hi[pos] = np.minimum(np.where(np.isfinite(h_), h_, nb[pos]), nb[pos])
+    scale = np.where(ht > 0, est / np.maximum(ht, 1e-300), 1.0)   # n_c / W_a
+    lo, hi = _one_side(est, sd, m, wq, scale)
+    if wa is not None and wanc is not None and not np.isnan(np.asarray(wanc, float)).any():
+        wa, wanc = np.asarray(wa, float), np.asarray(wanc, float)
+        g = np.maximum(nb - est, 0.0)
+        allmatch = g <= 1e-9 * np.maximum(nb, 1.0)                # no non-matching anchor row sampled
+        sg = np.where(wa > 0, nb / np.maximum(wa, 1e-300), 1.0)
+        glo, ghi = _one_side(g, sd, np.where(allmatch, 0, 1), wanc, sg)
+        use_g = (m > 0) & (est > nb / 2) & (wanc > 0)
+        lo, hi = np.where(use_g, nb - ghi, lo), np.where(use_g, nb - glo, hi)
+    lo = np.maximum(lo, m)
+    hi = np.minimum(hi, nb)
     return lo, np.maximum(hi, lo)
+
 
 res_dir, out = sys.argv[1], sys.argv[2]
 wl_dir = sys.argv[3] if len(sys.argv) > 3 else "work"
@@ -73,7 +103,8 @@ for log in sorted(glob.glob(os.path.join(res_dir, "*.log"))):
             f = line.rstrip("\n").split(",", 11)
             runs[f[2]] = dict(p=int(f[5]), n=int(f[6]), ns_per_rec=float(f[8]), query_us=float(f[9]),
                               used_mb=float(f[10]), info=f[11])
-    df = pd.read_csv(base + ".csv", header=None, names=["ds", "method", "mem", "seed", "qid", "est", "ht", "sd", "cm", "m", "wq"])
+    df = pd.read_csv(base + ".csv", header=None,
+                     names=["ds", "method", "mem", "seed", "qid", "est", "ht", "sd", "cm", "m", "wq", "wa", "va", "wanc"])
     wname = os.path.basename(base).split(".")[0]
     # p-scaling runs are named <dataset>_p<k>.<mem>.<seed>, merge runs <dataset>_m<parts>.<mem>.<seed>
     wname = re.sub(r"_m\d+$", "", wname)
@@ -126,8 +157,14 @@ for log in sorted(glob.glob(os.path.join(res_dir, "*.log"))):
             row["cov95_big"] = np.mean(err[big] <= 1.96 * sd[big])
             row["bias_ht"] = ht.sum() / truth.sum() - 1.0
             if g.m.notna().all() and _gamma is not None:
-                lo, hi = small_count_ci(est, ht, sd, g.m, g.wq, g.cm)
+                lo, hi = small_count_ci(est, ht, sd, g.m, g.wq, g.cm, g.wa, g.wanc)
                 inside = (lo <= truth) & (truth <= hi)
+                lo1, hi1 = small_count_ci(est, ht, sd, g.m, g.wq, g.cm)
+                in1 = (lo1 <= truth) & (truth <= hi1)
+                row["ci95_f"] = in1.mean()
+                row["ci95_f_big"] = in1[big].mean()
+                row["ci95_f_small"] = in1[truth < 100].mean() if (truth < 100).any() else np.nan
+                row["ci_relwidth_f"] = np.median((hi1 - lo1) / truth)
                 zero = g.m.to_numpy(float) == 0
                 row["ci95"] = inside.mean()
                 row["ci95_big"] = inside[big].mean()

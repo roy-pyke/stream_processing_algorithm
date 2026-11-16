@@ -6,7 +6,7 @@
 \centering
 \includegraphics[width=\textwidth]{figs/nae_vs_mem.pdf}
 \caption{Normalized absolute error on record-sampled queries with $k\ge2$ predicates versus memory
-(mean of 5 seeds, 3 for DMV; Hydra: one run, five-attribute streams only; lower is better).
+(mean of 5 seeds; Hydra: one run, not on DMV; lower is better).
 ``\omni (best)'' is the best of \NumOmniFamilySize{} variants, chosen separately for every point.}
 \label{fig:nae}
 \Description{Log-log plots of error versus memory for seven streams; the sample-based methods fall with memory, OmniSketch flattens.}
@@ -14,8 +14,8 @@
 
 \begin{table*}[t]
 \centering\small
-\caption{Normalized absolute error, record-sampled queries with $k\ge2$ predicates (mean of 5 seeds, 3 for
-DMV; Hydra: one run). Bold: best method per column and budget. ``\omni (best)'': best of
+\caption{Normalized absolute error, record-sampled queries with $k\ge2$ predicates (mean of 5 seeds; Hydra:
+one run). Bold: best method per column and budget. ``\omni (best)'': best of
 \NumOmniFamilySize{} variants, including our implementation with the authors' parameters.}
 \label{tab:main}
 \input{tables/main_acc}
@@ -45,8 +45,12 @@ the Zipf streams. Its error falls roughly as $1/M$, that of a sample as $M^{-1/2
 calibrated sample), so the calibrated uniform sample is ahead at small and medium budgets and Hydra at the
 largest ones. With tuple aggregation the calibrated sample is ahead throughout: Hydra's error is
 \NumHydraVsUssCalThreeLo--\NumHydraVsUssCalThreeHi{} times that of \textsc{USS+C3} at every budget.
-Hydra processes \NumTpHydraIdle{} million records per second, compared with \NumTpZipfCalTwo{} for
-\textsc{RS+C2}, and its cost doubles with every attribute; we could not run it on the real streams.
+Hydra ingests \NumTpHydraIdle{} million records/s (\textsc{RS+C2}: \NumTpZipfCalTwo), and its cost
+doubles with every attribute: about \NumTpHydraMawi{} and \NumTpHydraTaxi{} records/s on MAWI and Taxi
+(four runs at a time); DMV ($p=15$) is out of reach. On MAWI and Taxi all subsets share one grid of
+sketches and collisions dominate: Hydra's error is \NumHydraVsCalTwoRealLo--\NumHydraVsCalTwoRealHi$\times$
+that of \textsc{RS+C2}, \NumHydraVsResRealLo--\NumHydraVsResRealHi$\times$ that of the reservoir and
+\NumHydraVsOmniAnyRealLo--\NumHydraVsOmniAnyRealHi$\times$ that of the best \omni variant.
 
 \paragraph{USS and CocoSketch.} Both aggregate full tuples, and both behave alike: the error of CocoSketch
 is \NumCocoVsUssLo--\NumCocoVsUssHi{} times that of USS on the non-uniform streams. They beat the
@@ -123,10 +127,11 @@ to a few thousand values.
 \subsection{Confidence intervals}\label{sec:cires}
 
 \begin{table}[t]
-\centering\small\setlength{\tabcolsep}{3.5pt}
+\centering\small\setlength{\tabcolsep}{2.6pt}
 \caption{Coverage (\%) of nominal 95\% intervals, mean over the six streams of
 Figure~\ref{fig:nae} (record-sampled and anchored queries, 5 seeds). Normal: $\hat f_{\mathrm C}\pm1.96
-\sqrt{\hat V_{\mathrm C}}$. New: Section~\ref{sec:ci}; $m{=}0$: queries without a sampled match.}
+\sqrt{\hat V_{\mathrm C}}$. Matches: rule of three and gamma interval on the matches only. Rarer side:
+Section~\ref{sec:ci}; $m{=}0$: queries without a sampled match.}
 \label{tab:cov}
 \input{tables/coverage}
 \end{table}
@@ -134,13 +139,15 @@ Figure~\ref{fig:nae} (record-sampled and anchored queries, 5 seeds). Normal: $\h
 Table~\ref{tab:cov} compares the intervals of Section~\ref{sec:ci} with normal intervals. At 1\,MB,
 \NumCiFracZeroOneMb\% of the queries have no sampled match, and normal intervals cover only
 \NumCiNormSmallOneMb\% of the answers below 100 (\NumCiNormAllOneMb\% of all answers); even at 50\,MB they
-cover at most \NumCiNormSmallHi\% of small answers on any stream. The rule-of-three bound covers
-\NumCiNewZeroLo\% or more of the queries without a match on every stream and budget, and the gamma interval
-brings the coverage of answers below 100 to at least \NumCiNewSmallLo\%. The overall coverage of the new
-intervals is \NumCiNewLo--\NumCiNewHi\% per stream and budget. The remaining shortfall concerns large
-counts on the most skewed streams (down to \NumCiNewBigLo\% for $f\ge100$ on Zipf with $\alpha=1.5$ and
-on MAWI), where the linearised variance of the ratio estimator is too small; the intervals for
-\textsc{RS+C2} and \csh behave the same way.
+cover at most \NumCiNormSmallHi\% of small answers on any stream. The rule of three covers
+\NumCiNewZeroLo\% or more of the queries without a match. Building the interval on the matches alone
+(column ``matches'') leaves large counts undercovered, down to \NumCiOneSidedBigLo\% on \NumCiOneSidedBigWorst:
+when every sampled row of the anchor cell matches, the linearised variance is zero and the interval
+collapses to the anchor count. Switching to the non-matching part when it is the rarer one removes the
+shortfall at a median cost of \NumCiWidthGain\% in width: coverage is
+\NumCiNewLo--\NumCiNewHi\% per stream and budget, at least \NumCiNewSmallLo\% for answers below 100 and
+\NumCiNewBigLo\% for the others. The intervals are conservative, as rules of three and the extra weight
+of the gamma upper limit are designed to be, and \textsc{RS+C2} and \csh behave like \cs.
 
 \subsection{Range predicates}\label{sec:rangeres}
 
@@ -217,7 +224,7 @@ When the workload concentrates on a few attribute sets (template workload), sele
 $4p$ tables are as accurate as all pairs at $p=32$ (error ratio \NumPairTmplThirtyTwoWlFourP{} in favour of
 the selection) and better at $p=68$ (\NumPairTmplSixtyEightWlFourP), because 272 tables are each eight
 times wider than 2\,278, and the throughput rises from \NumPairTpAll{} to \NumPairTpSelFourP{} million
-records/s (C1 only: \NumPairTpCOne; measured on the second machine, see below). Pair selection is thus a
+records/s (C1 only: \NumPairTpCOne). Pair selection is thus a
 workload-driven optimisation; the data alone do not reveal which pairs will be queried.
 
 \subsection{Update throughput and query latency}\label{sec:speed}
@@ -236,10 +243,9 @@ counters only, a uniform or stratified sample ingests \NumTpCalOneLo--\NumTpCalO
 \NumTpCsOneVsOmniLo--\NumTpCsOneVsOmniHi$\times$ the throughput of the fastest \omni variant. The pair
 tables cost a factor \NumTpPairCostLo--\NumTpPairCostHi{} ($\binom p2=66$ and 45 increments per record on
 Taxi and MAWI), so \textsc{RS+C2} and \cs reach \NumTpCalTwoVsOmniLo--\NumTpCalTwoVsOmniHi{} times the
-throughput of the fastest \omni variant: slower at 1\,MB, where \omni's cells are tiny, and on par or faster
-at 50\,MB. Our \omni is \NumTpOursVsJavaLo--\NumTpOursVsJavaHi{} times as fast as the port of the authors'
-tree-based implementation, so the comparison is not against a slow strawman. The configurations added for this submission were
-timed sequentially on a second machine (Apple M4 Pro, one job at a time). There, CocoSketch ingests
+throughput of the fastest \omni variant: \NumTpCalTwoVsOmniOneLo--\NumTpCalTwoVsOmniOneHi$\times$ at 1\,MB,
+where \omni's cells are tiny, and \NumTpCalTwoVsOmniFiftyLo--\NumTpCalTwoVsOmniFiftyHi$\times$ at 50\,MB. Our \omni is \NumTpOursVsJavaLo--\NumTpOursVsJavaHi{} times as fast as the port of the authors'
+tree-based implementation, so the comparison is not against a slow strawman. CocoSketch ingests
 \NumTpNewCocoLo--\NumTpNewCocoHi{} million records/s and USS \NumTpNewUssLo--\NumTpNewUssHi{}, and the
 dyadic counters cost \cs a factor \NumRangeTpDyCostLo--\NumRangeTpDyCostHi{} in throughput on the range
 workloads (\NumRangeTpDyLo--\NumRangeTpDyHi{} million records/s), which leaves it at
