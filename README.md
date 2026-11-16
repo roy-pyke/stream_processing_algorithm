@@ -17,7 +17,7 @@ chosen at query time on multi-attribute streams:
 |---|---|
 | `src/synopses.hpp` | reservoir, OmniSketch (ours), USS, aSH (journal baseline), marginal tables (`MargCal`), CoStrata, CoStrata-H |
 | `src/omni_java_compat.hpp` | bit-exact C++ port of the authors' Java OmniSketch (hashes, parameter search, both estimators, accounting) |
-| `src/bench.cpp` | benchmark driver (`acc`, `time`); method specs are documented at the top of the file |
+| `src/bench.cpp` | benchmark driver (`acc`, `time`, `merge`); method specs are documented at the top of the file |
 | `src/mkworkload.cpp`, `gen_synth.cpp`, `pcap2bin.cpp` | workload generator (incl. the query procedures of both OmniSketch papers), synthetic streams, pcap converter |
 | `src/bias_probe.cpp`, `jhash_test.cpp` | unbiasedness probe; test vectors for the ported Java hash functions |
 | `repro/omni_java/Harness.java` | driver for the authors' unmodified Java code (OmniSketch and their Hydra adaptation) |
@@ -64,7 +64,13 @@ scripts/gen_upstream_synth.sh          # Zipf streams from the authors' generato
 
 for ds in zipf10_5M zipf13_5M zipf15_5M unif_5M; do bin/mkworkload data/$ds.bin work/$ds.wl 200 5 4242; done
 for ds in taxi mawi dmv; do bin/mkworkload data/$ds.bin work/$ds.wl 200 6 4242; done
+# range workloads (kind 4: one or two ranges plus equalities, k = 1..4; attributes by index)
+bin/mkworkload data/taxi.bin work/taxi_range.wl range 100 41 6,8,9,11    # hour, distance, fare, duration
+bin/mkworkload data/mawi.bin work/mawi_range.wl range 100 42 2,3,5       # ports, packet length
+# Census template workloads (20 attribute sets; used for pair-table selection)
+for p in 16 32 68; do MKW_TEMPLATES=20 bin/mkworkload data/census.bin work/census_p${p}_tmpl.wl 200 4 7 $p; done
 ```
+(`scripts/run_presub.sh` creates the range and template workloads itself if they are missing.)
 
 The SNMP (CRAWDAD Dartmouth campus, IEEE DataPort, free registration) and CAIDA (application required)
 traces of the original evaluation are not included.
@@ -82,15 +88,22 @@ scripts/run_hydra.sh 2           # the authors' Hydra adaptation on the 5-attrib
 scripts/run_extra.sh 4           # ablations, attribute scaling
 scripts/run_bias.sh 8 && python scripts/bias_check.py ; scripts/run_bias_probe.sh
 scripts/run_timing.sh            # update throughput / query latency (idle machine)
+scripts/run_presub.sh all 8      # CocoSketch, index charged, interval diagnostics, ranges, merging, pair selection, DMV
+scripts/run_presub.sh timing     # throughput of those configurations (sequential; idle machine)
 
 python scripts/aggregate.py results/acc     results/agg_acc.csv     work
 python scripts/aggregate.py results/acc3    results/agg_acc3.csv    work
 python scripts/aggregate.py results/journal results/agg_journal.csv work
 python scripts/aggregate.py results/abl     results/agg_abl.csv     work
 python scripts/aggregate.py results/census  results/agg_census.csv  work
+python scripts/aggregate.py results/acc2    results/agg_acc2.csv    work   # needs scipy (small-count intervals)
+python scripts/aggregate.py results/range   results/agg_range.csv   work
+python scripts/aggregate.py results/merge   results/agg_merge.csv   work
+python scripts/aggregate.py results/pairs   results/agg_pairs.csv   work
 python scripts/journal_metric.py
 python scripts/plots.py          # -> paper/figs, paper/tables, paper/numbers.tex, results/summary.txt
-python scripts/check_paper.py    # static checks of the LaTeX sources (macros, references, environments)
+scripts/build_paper.sh           # paper/paper.pdf and paper/appendix.pdf (acmart; needs a TeX installation)
+python scripts/check_paper.py    # static checks of the LaTeX sources (macros, references, environments, page limit)
 ```
 
 `ext/` (upstream checkouts, JDK, class files), `data/` and `work/` are not tracked.

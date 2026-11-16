@@ -9,13 +9,44 @@ For every (dataset, method, mem, seed) run we compute, per workload family:
   mre_d{j} mean relative error over queries whose rarest predicate has frequency in [10^j, 10^(j+1))
   mre_k{k} mean relative error over queries with k predicates
   cov95    (CoStrata only) fraction of queries with |est - truth| <= 1.96 * sd
+  ci95     (CoStrata, CoStrata-H; runs with interval diagnostics) coverage of the small-count
+           intervals: rule of three [0, min(n_c, ln(20) / pi_q)] when no sampled row matches, otherwise
+           the Fay-Feuer gamma interval around the calibrated estimate, truncated to [m, n_c]
+           (m = matching sampled rows, n_c = anchor count, both hard bounds on the answer)
 """
 import glob
 import os
 import sys
 
+import re
+
 import numpy as np
 import pandas as pd
+
+try:
+    from scipy.stats import gamma as _gamma
+except ImportError:  # the new intervals need scipy; everything else does not
+    _gamma = None
+
+ALPHA = 0.05
+
+
+def small_count_ci(est, ht, sd, m, wq, nb):
+    """95% intervals for calibrated estimates (see the module docstring); returns lo, hi arrays."""
+    est, ht, sd, m, wq, nb = (np.asarray(x, float) for x in (est, ht, sd, m, wq, nb))
+    lo = np.zeros_like(est)
+    hi = np.minimum(nb, np.log(1 / ALPHA) * wq)              # no matching row: P(m = 0) <= exp(-pi_q f)
+    pos = m > 0
+    y, v = est[pos], np.maximum(sd[pos] ** 2, 1e-12)
+    scale = np.where(ht[pos] > 0, est[pos] / np.maximum(ht[pos], 1e-300), 1.0)
+    wm = scale * wq[pos]                                     # calibrated weight of one more matching record
+    with np.errstate(divide="ignore", invalid="ignore"):
+        l_ = _gamma.ppf(ALPHA / 2, a=y * y / v, scale=v / y)
+        h_ = _gamma.ppf(1 - ALPHA / 2, a=(y + wm) ** 2 / (v + wm * wm), scale=(v + wm * wm) / (y + wm))
+    l_ = np.where(np.isfinite(l_), l_, y)
+    lo[pos] = np.maximum(l_, m[pos])
+    hi[pos] = np.minimum(np.where(np.isfinite(h_), h_, nb[pos]), nb[pos])
+    return lo, np.maximum(hi, lo)
 
 res_dir, out = sys.argv[1], sys.argv[2]
 wl_dir = sys.argv[3] if len(sys.argv) > 3 else "work"
@@ -42,9 +73,10 @@ for log in sorted(glob.glob(os.path.join(res_dir, "*.log"))):
             f = line.rstrip("\n").split(",", 11)
             runs[f[2]] = dict(p=int(f[5]), n=int(f[6]), ns_per_rec=float(f[8]), query_us=float(f[9]),
                               used_mb=float(f[10]), info=f[11])
-    df = pd.read_csv(base + ".csv", header=None, names=["ds", "method", "mem", "seed", "qid", "est", "ht", "sd", "cm"])
+    df = pd.read_csv(base + ".csv", header=None, names=["ds", "method", "mem", "seed", "qid", "est", "ht", "sd", "cm", "m", "wq"])
     wname = os.path.basename(base).split(".")[0]
-    # p-scaling runs are named <dataset>_p<k>.<mem>.<seed>
+    # p-scaling runs are named <dataset>_p<k>.<mem>.<seed>, merge runs <dataset>_m<parts>.<mem>.<seed>
+    wname = re.sub(r"_m\d+$", "", wname)
     w = workload(wname)
     truth = w.truth.to_numpy(float)
     dec = np.floor(np.log10(np.maximum(w.minfreq.to_numpy(float), 1))).astype(int)
@@ -59,7 +91,7 @@ for log in sorted(glob.glob(os.path.join(res_dir, "*.log"))):
         err = np.abs(est - truth)
         rel = err / truth
         row = dict(dataset=g.ds.iloc[0], method=method, mem=float(g.mem.iloc[0]), seed=int(g.seed.iloc[0]), **runs[method])
-        for kind in (0, 1, 2, 3):
+        for kind in (0, 1, 2, 3, 4):
             sel = (w.kind == kind).to_numpy()
             if sel.sum() == 0:
                 continue
@@ -84,12 +116,26 @@ for log in sorted(glob.glob(os.path.join(res_dir, "*.log"))):
         if g.ht.notna().all():
             ht = g.ht.to_numpy(float)
             sd = g.sd.to_numpy(float)
-            row["nae0_ht"] = np.abs(ht - truth)[(w.kind == 0).to_numpy()].mean() / N
-            row["nae1_ht"] = np.abs(ht - truth)[(w.kind == 1).to_numpy()].mean() / N
+            for kind in (0, 1, 4):
+                sel = (w.kind == kind).to_numpy()
+                if sel.sum():
+                    row[f"nae{kind}_ht"] = np.abs(ht - truth)[sel].mean() / N
+                    row[f"mre{kind}_ht"] = (np.abs(ht - truth) / truth)[sel].mean()
             row["cov95"] = np.mean(err <= 1.96 * sd)
             big = truth >= 100
             row["cov95_big"] = np.mean(err[big] <= 1.96 * sd[big])
             row["bias_ht"] = ht.sum() / truth.sum() - 1.0
+            if g.m.notna().all() and _gamma is not None:
+                lo, hi = small_count_ci(est, ht, sd, g.m, g.wq, g.cm)
+                inside = (lo <= truth) & (truth <= hi)
+                zero = g.m.to_numpy(float) == 0
+                row["ci95"] = inside.mean()
+                row["ci95_big"] = inside[big].mean()
+                row["ci95_small"] = inside[truth < 100].mean() if (truth < 100).any() else np.nan
+                row["cov95_small"] = np.mean((err <= 1.96 * sd)[truth < 100]) if (truth < 100).any() else np.nan
+                row["frac_zero"] = zero.mean()
+                row["ci95_zero"] = inside[zero].mean() if zero.any() else np.nan
+                row["ci_relwidth"] = np.median((hi - lo) / truth)
         rows.append(row)
 
 pd.DataFrame(rows).to_csv(out, index=False)

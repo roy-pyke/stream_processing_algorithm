@@ -1,0 +1,22 @@
+\begin{tabular}{lrrrrrr}
+\toprule
+ & \multicolumn{3}{c}{random workload} & \multicolumn{3}{c}{template workload} \\
+Pair tables & $p{=}16$ & $32$ & $68$ & $p{=}16$ & $32$ & $68$ \\
+\midrule
+none (C1 only) & 3.5e-4 & 4.7e-4 & 7.7e-4 & 3.3e-4 & 4.2e-4 & 6.3e-4 \\
+all $\binom p2$ & \textbf{1.1e-4} & \textbf{1.8e-4} & \textbf{2.8e-4} & \textbf{1.0e-4} & 1.5e-4 & 2.2e-4 \\
+\addlinespace[2pt]
+workload, $m=p$ & 3.3e-4 & 4.8e-4 & 7.8e-4 & 2.6e-4 & 3.4e-4 & 3.2e-4 \\
+workload, $m=4p$ & 1.8e-4 & 3.9e-4 & 6.3e-4 & 1.3e-4 & \textbf{1.5e-4} & 1.9e-4 \\
+\addlinespace[2pt]
+mutual inf., $m=p$ & 3.4e-4 & 5.1e-4 & 8.6e-4 & 3.2e-4 & 4.5e-4 & 6.8e-4 \\
+mutual inf., $m=4p$ & 2.1e-4 & 4.2e-4 & 8.1e-4 & 1.7e-4 & 3.5e-4 & 5.6e-4 \\
+\addlinespace[2pt]
+anchor red., $m=p$ & 2.9e-4 & 4.8e-4 & 8.3e-4 & 2.5e-4 & 4.5e-4 & 6.6e-4 \\
+anchor red., $m=4p$ & 1.5e-4 & 3.5e-4 & 6.9e-4 & 1.4e-4 & 3.1e-4 & 5.3e-4 \\
+\addlinespace[2pt]
+random, $m=p$ & 3.4e-4 & 5.2e-4 & 8.4e-4 & 3.4e-4 & 4.7e-4 & 6.7e-4 \\
+random, $m=4p$ & 2.1e-4 & 4.4e-4 & 7.8e-4 & 2.0e-4 & 3.8e-4 & 6.2e-4 \\
+\addlinespace[2pt]
+\bottomrule
+\end{tabular}

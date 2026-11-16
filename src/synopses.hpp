@@ -38,9 +38,20 @@ struct Reservoir {
     void finalize() {}
     double estimate(const Query& q) const {
         if (size == 0) return 0;
+        uint64_t hits = 0;
+        if (q.has_range()) {
+            for (uint64_t s = 0; s < size; s++) {
+                bool ok = true;
+                for (size_t k = 0; k < q.attrs.size() && ok; k++) {
+                    uint32_t x = col[q.attrs[k]][s];
+                    ok = x >= q.vals[k] && x <= q.hi[k];
+                }
+                hits += ok;
+            }
+            return (double)hits * (double)N / (double)size;
+        }
         const uint32_t* c0 = col[q.attrs[0]].data();
         uint32_t v0 = q.vals[0];
-        uint64_t hits = 0;
         for (uint64_t s = 0; s < size; s++) {
             if (c0[s] != v0) continue;
             bool ok = true;
@@ -123,6 +134,25 @@ struct OmniSketch {
         for (auto& h : smp) std::sort(h.begin(), h.end());
         sorted = true;
     }
+    // Merge a sketch with the same parameters and seeds built over a disjoint part of the stream
+    // (before finalize): counters add and every cell keeps the B smallest hashes of the union of the
+    // two samples. This is exact: the result is the sketch of the concatenated stream.
+    void merge(const OmniSketch& o) {
+        N += o.N;
+        std::vector<uint64_t> u;
+        for (size_t c = 0; c < cnt.size(); c++) {
+            cnt[c] += o.cnt[c];
+            if (o.smp[c].empty()) continue;
+            u.assign(smp[c].begin(), smp[c].end());
+            u.insert(u.end(), o.smp[c].begin(), o.smp[c].end());
+            std::sort(u.begin(), u.end());
+            u.erase(std::unique(u.begin(), u.end()), u.end());
+            if (u.size() > B) u.resize(B);
+            smp[c].assign(u.begin(), u.end());
+            std::make_heap(smp[c].begin(), smp[c].end());
+            thr[c] = smp[c].size() == B ? smp[c].front() : UINT64_MAX;
+        }
+    }
     // scaled: Eq. 4 / Corollary 3.4 (always n_max/B * |S_cap|); thm33: Theorem 3.3, which
     // returns the bound 2 n_max L / (B eps^2), L = ln(4 p_q d sqrt(B)/delta), whenever
     // |S_cap| < 3 L / eps^2 -- this is what the authors' Java query() returns.
@@ -157,6 +187,148 @@ struct OmniSketch {
         if (inter) *inter = (double)cand.size();
         if (nmax_out) *nmax_out = (double)nmax;
         return scale * (double)cand.size();
+    }
+};
+
+// =============================================================== OmniSketch with dyadic ranges
+// Range support of OmniSketch (Section 3.3 of the PVLDB paper; class CountMinDyad of the authors'
+// code): every range attribute a has L_a = bits_a + 1 levels, level l being a d x w array of cells
+// over the dyadic intervals of length 2^l (interval index v >> l); every other attribute has level 0
+// only. Each record is inserted at every level. A predicate lo <= r_a <= hi is decomposed into its
+// canonical dyadic cover; for every sketch row the samples of the covering cells are united, and the
+// united samples of all predicates and rows are intersected. Two estimators:
+//   code : |S_cap| * n_max / B_virtual as in the reference code (OmniSketch.rangeQuery, case 2):
+//          n_max is the largest summed count of the covering cells of a predicate in one row, over
+//          all predicates and rows, and B_virtual = B times the number of covering pieces of the
+//          last predicate of the query;
+//   thr  : the united sample of every (predicate, row) is a coordinated sample of the union of its
+//          cells up to the smallest threshold among them; the intersection, truncated to the smallest
+//          of these thresholds tau*, is a uniform sample of R_cap at rate tau*, scaled by 1/tau*.
+// Memory is charged with the lean accounting of `omni:w:d` (32 bits per stored hash and per non-empty
+// cell) and B is chosen by the oracle from the final cell loads.
+struct OmniDyad {
+    uint32_t p, d, w;
+    uint64_t B, N = 0, gseed;
+    std::vector<uint32_t> L, off;            // levels per attribute, first level id of attribute a
+    std::vector<uint64_t> hseed;             // per (level id, row)
+    std::vector<uint32_t> cnt;
+    std::vector<uint64_t> thr;
+    std::vector<std::vector<uint64_t>> smp;
+    static constexpr uint64_t G63 = 1ull << 63;
+
+    OmniDyad(uint32_t p_, uint32_t d_, uint32_t w_, uint64_t B_, const std::vector<uint32_t>& levels, uint64_t seed)
+        : p(p_), d(d_), w(w_), B(B_), L(levels), off(p_) {
+        uint32_t T = 0;
+        for (uint32_t a = 0; a < p; a++) off[a] = T, T += L[a];
+        Rng r(seed);
+        gseed = r.next();
+        hseed.resize((size_t)T * d);
+        for (auto& s : hseed) s = r.next();
+        cnt.assign((size_t)T * d * w, 0);
+        thr.assign(cnt.size(), UINT64_MAX);
+        smp.resize(cnt.size());
+    }
+    inline size_t cell(uint32_t a, uint32_t l, uint32_t j, uint64_t x) const {
+        size_t lv = (size_t)(off[a] + l) * d + j;
+        return lv * w + bucket_of((uint32_t)x, hseed[lv], w);
+    }
+    // cell loads of a stream, for the oracle choice of B (same hash functions as the sketch)
+    std::vector<uint32_t> loads(const Dataset& ds) const {
+        std::vector<uint32_t> c(cnt.size(), 0);
+        for (uint64_t i = 0; i < ds.n; i++) {
+            const uint32_t* r = ds.row(i);
+            for (uint32_t a = 0; a < p; a++)
+                for (uint32_t l = 0; l < L[a]; l++)
+                    for (uint32_t j = 0; j < d; j++) c[cell(a, l, j, (uint64_t)r[a] >> l)]++;
+        }
+        return c;
+    }
+    uint64_t mem_bits_lean() const {
+        uint64_t e = 0, ne = 0;
+        for (size_t c = 0; c < cnt.size(); c++) e += smp[c].size(), ne += cnt[c] > 0;
+        return 32ull * (e + ne);
+    }
+    inline void insert(uint64_t rid, const uint32_t* rec) {
+        N++;
+        uint64_t g = mix64(rid ^ gseed) >> 1;
+        for (uint32_t a = 0; a < p; a++)
+            for (uint32_t l = 0; l < L[a]; l++)
+                for (uint32_t j = 0; j < d; j++) {
+                    size_t c = cell(a, l, j, (uint64_t)rec[a] >> l);
+                    cnt[c]++;
+                    if (g >= thr[c]) continue;
+                    auto& h = smp[c];
+                    if (h.size() < B) {
+                        h.push_back(g);
+                        std::push_heap(h.begin(), h.end());
+                        if (h.size() == B) thr[c] = h.front();
+                    } else {
+                        std::pop_heap(h.begin(), h.end());
+                        h.back() = g;
+                        std::push_heap(h.begin(), h.end());
+                        thr[c] = h.front();
+                    }
+                }
+    }
+    void finalize() {
+        for (auto& h : smp) std::sort(h.begin(), h.end());
+    }
+    struct Est {
+        double code, thr, inter;
+    };
+    Est estimate(const Query& q) const {
+        const size_t k = q.attrs.size();
+        std::vector<std::vector<uint64_t>> U(k * d);
+        std::vector<double> n(k * d, 0.0), pieces(k, 1.0);
+        std::vector<uint64_t> tau(k * d, UINT64_MAX);
+        std::vector<std::pair<uint32_t, uint64_t>> cov;
+        for (size_t i = 0; i < k; i++) {
+            uint32_t a = q.attrs[i];
+            uint64_t lo = q.vals[i], hi = q.is_eq(i) ? q.vals[i] : q.hi[i];
+            if (L[a] > 1) hi = std::min<uint64_t>(hi, (1ull << (L[a] - 1)) - 1);
+            if (lo == hi) cov.assign(1, {0u, lo});
+            else if (lo < hi) dyadic_cover(lo, hi, cov); // L[a] > 1 for every attribute with range predicates
+            else cov.clear();
+            pieces[i] = std::max<double>(1.0, (double)cov.size());
+            for (uint32_t j = 0; j < d; j++) {
+                auto& u = U[i * d + j];
+                for (auto& lx : cov) {
+                    size_t c = cell(a, lx.first, j, lx.second);
+                    n[i * d + j] += cnt[c];
+                    tau[i * d + j] = std::min(tau[i * d + j], thr[c]);
+                    u.insert(u.end(), smp[c].begin(), smp[c].end());
+                }
+                if (cov.size() > 1) {
+                    std::sort(u.begin(), u.end());
+                    u.erase(std::unique(u.begin(), u.end()), u.end());
+                }
+            }
+        }
+        std::vector<size_t> ord(k * d);
+        for (size_t i = 0; i < ord.size(); i++) ord[i] = i;
+        std::sort(ord.begin(), ord.end(), [&](size_t x, size_t y) { return U[x].size() < U[y].size(); });
+        std::vector<uint64_t> cand = U[ord[0]], tmp;
+        for (size_t i = 1; i < ord.size() && !cand.empty(); i++) {
+            tmp.clear();
+            std::set_intersection(cand.begin(), cand.end(), U[ord[i]].begin(), U[ord[i]].end(), std::back_inserter(tmp));
+            cand.swap(tmp);
+        }
+        Est e;
+        e.inter = (double)cand.size();
+        // as OmniSketch.rangeQuery (case-2 estimate): n_max over all predicates and rows, and
+        // B_virtual = (number of covering pieces of the last predicate) * B
+        double nmax = 0;
+        for (double x : n) nmax = std::max(nmax, x);
+        e.code = e.inter * nmax / (pieces[k - 1] * (double)B);
+        uint64_t ts = *std::min_element(tau.begin(), tau.end());
+        if (ts == UINT64_MAX) e.thr = e.inter; // every cell holds all its records: exact
+        else {
+            // records of R_cap with hash below tau* are all in the intersection; their number over
+            // P(hash < tau*) is the bottom-k estimate with the k-th value excluded
+            double m = (double)(std::lower_bound(cand.begin(), cand.end(), ts) - cand.begin());
+            e.thr = ts > 0 ? m * (double)G63 / (double)ts : 0.0;
+        }
+        return e;
     }
 };
 
@@ -279,6 +451,73 @@ struct USS {
             if (q.matches(&keys[s * p])) sum += cnt[s];
         return (double)sum;
     }
+    template <class F> void for_each(F f) const {
+        for (uint64_t s = 0; s < size; s++) f(&keys[s * p], (double)cnt[s]);
+    }
+    uint64_t entries() const { return m; }
+    uint64_t held() const { return size; }
+};
+
+// =============================================================== CocoSketch
+// CocoSketch (Zhang et al., SIGCOMM 2021), software version, following the authors' code
+// (github.com/yindazhang/CocoSketch, CPU/Multiple/OurSoft.h): d = 2 arrays of buckets, each holding a
+// full key -- here the p-attribute tuple -- and a count. An update hashes the key to one bucket per
+// array; if one of them holds the key it is incremented, otherwise the bucket with the smallest count
+// is incremented and takes over the key with probability 1/count ("stochastic variance
+// minimisation"). A partial-key query -- here any predicate on the tuple -- sums the counts of the
+// buckets whose key matches. Charged 32p + 32 bits per bucket.
+struct Coco {
+    uint32_t p, d;
+    uint64_t L, N = 0;
+    Rng rng;
+    std::vector<uint32_t> keys, cnt; // d*L*p, d*L
+    std::vector<uint64_t> hs;
+    Coco(uint32_t p_, uint64_t buckets, uint64_t seed, uint32_t d_ = 2) : p(p_), d(d_), rng(seed) {
+        L = std::max<uint64_t>(1, buckets / d);
+        keys.assign((size_t)d * L * p, 0);
+        cnt.assign((size_t)d * L, 0);
+        hs.resize(d);
+        for (auto& x : hs) x = rng.next();
+    }
+    static uint64_t bits_per_row(uint32_t p) { return 32ull * p + 32; }
+    uint64_t mem_bits() const { return (uint64_t)d * L * bits_per_row(p); }
+    inline uint64_t hkey(const uint32_t* r, uint64_t seed) const {
+        uint64_t h = seed;
+        for (uint32_t a = 0; a < p; a++) h = (h ^ r[a]) * 0x9E3779B97F4A7C15ULL, h ^= h >> 29;
+        return mix64(h);
+    }
+    inline void insert(uint64_t /*rid*/, const uint32_t* rec) {
+        N++;
+        uint32_t minc = UINT32_MAX;
+        size_t minb = 0;
+        for (uint32_t i = 0; i < d; i++) {
+            size_t b = (size_t)i * L + (size_t)(((unsigned __int128)hkey(rec, hs[i]) * L) >> 64);
+            if (cnt[b] > 0 && memcmp(&keys[b * p], rec, 4 * p) == 0) {
+                cnt[b]++;
+                return;
+            }
+            if (cnt[b] < minc) minc = cnt[b], minb = b;
+        }
+        uint32_t c = ++cnt[minb];
+        if (rng.below(c) == 0) memcpy(&keys[minb * p], rec, 4 * p);
+    }
+    void finalize() {}
+    double estimate(const Query& q) const {
+        uint64_t sum = 0;
+        for (size_t b = 0; b < cnt.size(); b++)
+            if (cnt[b] && q.matches(&keys[b * p])) sum += cnt[b];
+        return (double)sum;
+    }
+    template <class F> void for_each(F f) const {
+        for (size_t b = 0; b < cnt.size(); b++)
+            if (cnt[b]) f(&keys[b * p], (double)cnt[b]);
+    }
+    uint64_t entries() const { return (uint64_t)d * L; }
+    uint64_t held() const {
+        uint64_t h = 0;
+        for (uint32_t c : cnt) h += c > 0;
+        return h;
+    }
 };
 
 // =============================================================== aSH (journal-version baseline)
@@ -395,6 +634,11 @@ struct ASH {
 // Updating costs C(p,2) (+ C(p,3)) counter increments per record.
 struct MargCal {
     uint32_t p = 0, w2 = 0, w3 = 0, n2 = 0, n3 = 0;
+    // Pair tables kept: all C(p,2) pairs by default, or a selected subset (wide streams). pidx maps
+    // (a,b), a<b, to the table index or -1; with all pairs, the order (and hence the seeds and the
+    // cells) is that of the canonical enumeration a<b, so that results are unchanged.
+    std::vector<std::pair<uint32_t, uint32_t>> plist;
+    std::vector<int32_t> pidx;
     // Sampled tables: only a hash-selected fraction `beta` of the records updates the tables and
     // counts are scaled by 1/beta. This caps the table work per record for wide streams; the
     // anchors are then estimates from a Bernoulli(beta) sample of the stream instead of exact counts.
@@ -416,8 +660,8 @@ struct MargCal {
         while (wd < (1u << 26) && 32.0 * (double)ntab * (2.0 * wd) <= bits) wd *= 2;
         return wd;
     }
-    static uint64_t bits_for(uint32_t p, uint32_t w2, uint32_t w3) {
-        return 32ull * w2 * npairs(p) + 32ull * w3 * ntriples(p);
+    static uint64_t bits_for(uint32_t p, uint32_t w2, uint32_t w3, uint64_t npair_sel = 0) {
+        return 32ull * w2 * (npair_sel ? npair_sel : npairs(p)) + 32ull * w3 * ntriples(p);
     }
     uint64_t mem_bits() const { return 32ull * (c2.size() + c3.size()); }
     // Fraction of records that may update the tables if at most `cap` table increments per record
@@ -426,7 +670,9 @@ struct MargCal {
         double per = (w2 ? (double)npairs(p) : 0.0) + (w3 ? (double)ntriples(p) : 0.0);
         return cap > 0 && per > cap ? cap / per : 1.0;
     }
-    void init(uint32_t p_, uint32_t w2_, uint32_t w3_, uint64_t seed, double beta_ = 1.0) { // before the first add()
+    // `sel`: the pairs to keep (nullptr or empty: all pairs)
+    void init(uint32_t p_, uint32_t w2_, uint32_t w3_, uint64_t seed, double beta_ = 1.0,
+              const std::vector<std::pair<uint32_t, uint32_t>>* sel = nullptr) { // before the first add()
         beta = beta_;
         inv_beta = 1.0 / beta_;
         bthr = beta_ >= 1.0 ? UINT32_MAX : (uint32_t)(beta_ * 4294967296.0);
@@ -434,12 +680,29 @@ struct MargCal {
         p = p_;
         w2 = w2_;
         w3 = w3_;
-        n2 = w2 ? (uint32_t)npairs(p) : 0;
         n3 = w3 ? (uint32_t)ntriples(p) : 0;
         Rng r(seed);
-        seed2.resize(n2);
+        plist.clear();
+        pidx.assign((size_t)p * p, -1);
+        if (w2) {
+            // seeds are drawn for all pairs in canonical order, so a selected pair has the seed it would have
+            std::vector<uint64_t> all((size_t)npairs(p));
+            for (auto& x : all) x = r.next();
+            std::vector<char> keep((size_t)p * p, sel == nullptr || sel->empty());
+            if (sel)
+                for (auto& ab : *sel) keep[(size_t)std::min(ab.first, ab.second) * p + std::max(ab.first, ab.second)] = 1;
+            seed2.clear();
+            uint32_t pi = 0;
+            for (uint32_t a = 0; a < p; a++)
+                for (uint32_t b = a + 1; b < p; b++, pi++)
+                    if (keep[(size_t)a * p + b]) {
+                        pidx[(size_t)a * p + b] = (int32_t)plist.size();
+                        plist.push_back({a, b});
+                        seed2.push_back(all[pi]);
+                    }
+        }
+        n2 = (uint32_t)plist.size();
         seed3.resize(n3);
-        for (auto& x : seed2) x = r.next();
         for (auto& x : seed3) x = r.next();
         c2.assign((size_t)n2 * w2, 0);
         c3.assign((size_t)n3 * w3, 0);
@@ -451,10 +714,13 @@ struct MargCal {
                     for (uint32_t c = b + 1; c < p; c++) tri[((size_t)a * p + b) * p + c] = t++;
         }
     }
-    inline size_t cell2(uint32_t a, uint32_t b, uint32_t va, uint32_t vb) const { // a < b
-        uint32_t pi = a * (2 * p - a - 1) / 2 + (b - a - 1);
-        uint64_t h = mix64((((uint64_t)va << 32) | vb) * 0x9E3779B97F4A7C15ULL + seed2[pi]);
-        return (size_t)pi * w2 + (size_t)(((h >> 32) * (uint64_t)w2) >> 32);
+    inline size_t cell2t(uint32_t t, uint32_t va, uint32_t vb) const { // table t
+        uint64_t h = mix64((((uint64_t)va << 32) | vb) * 0x9E3779B97F4A7C15ULL + seed2[t]);
+        return (size_t)t * w2 + (size_t)(((h >> 32) * (uint64_t)w2) >> 32);
+    }
+    inline bool has_pair(uint32_t a, uint32_t b) const { return w2 && pidx[(size_t)a * p + b] >= 0; } // a < b
+    inline size_t cell2(uint32_t a, uint32_t b, uint32_t va, uint32_t vb) const { // a < b, pair kept
+        return cell2t((uint32_t)pidx[(size_t)a * p + b], va, vb);
     }
     inline size_t cell3(uint32_t a, uint32_t b, uint32_t c, uint32_t va, uint32_t vb, uint32_t vc) const { // a < b < c
         uint32_t ti = tri[((size_t)a * p + b) * p + c];
@@ -464,13 +730,16 @@ struct MargCal {
     }
     inline void add(uint64_t rid, const uint32_t* rec) {
         if (beta < 1.0 && (uint32_t)(mix64(rid ^ bseed) >> 32) >= bthr) return;
-        if (w2)
-            for (uint32_t a = 0; a + 1 < p; a++)
-                for (uint32_t b = a + 1; b < p; b++) c2[cell2(a, b, rec[a], rec[b])]++;
+        for (uint32_t t = 0; t < n2; t++) c2[cell2t(t, rec[plist[t].first], rec[plist[t].second])]++;
         if (w3)
             for (uint32_t a = 0; a + 2 < p; a++)
                 for (uint32_t b = a + 1; b + 1 < p; b++)
                     for (uint32_t c = b + 1; c < p; c++) c3[cell3(a, b, c, rec[a], rec[b], rec[c])]++;
+    }
+    // tables built with the same seeds over a disjoint part of the stream
+    void merge(const MargCal& o) {
+        for (size_t i = 0; i < c2.size(); i++) c2[i] += o.c2[i];
+        for (size_t i = 0; i < c3.size(); i++) c3[i] += o.c3[i];
     }
     void begin_weights() {
         W2.assign(c2.size(), 0.0);
@@ -479,13 +748,11 @@ struct MargCal {
         V3.assign(c3.size(), 0.0);
     }
     inline void add_weight(const uint32_t* rec, double wgt, double var) {
-        if (w2)
-            for (uint32_t a = 0; a + 1 < p; a++)
-                for (uint32_t b = a + 1; b < p; b++) {
-                    size_t c = cell2(a, b, rec[a], rec[b]);
-                    W2[c] += wgt;
-                    V2[c] += var;
-                }
+        for (uint32_t t = 0; t < n2; t++) {
+            size_t c = cell2t(t, rec[plist[t].first], rec[plist[t].second]);
+            W2[c] += wgt;
+            V2[c] += var;
+        }
         if (w3)
             for (uint32_t a = 0; a + 2 < p; a++)
                 for (uint32_t b = a + 1; b + 1 < p; b++)
@@ -498,6 +765,7 @@ struct MargCal {
     // Exact count and sample weight of the pair (triple) cell addressed by predicates i, j (, l) of q.
     inline void pair_stat(const Query& q, size_t i, size_t j, double& n, double& W) const {
         if (q.attrs[i] > q.attrs[j]) std::swap(i, j);
+        if (!has_pair(q.attrs[i], q.attrs[j])) { n = 0; W = 0; return; } // not kept: no constraint
         size_t c = cell2(q.attrs[i], q.attrs[j], q.vals[i], q.vals[j]);
         n = c2[c] * inv_beta;
         W = W2[c];
@@ -519,6 +787,7 @@ struct MargCal {
         if (w2)
             for (size_t i = 0; i + 1 < k; i++)
                 for (size_t j = i + 1; j < k; j++) {
+                    if (!has_pair(q.attrs[idx[i]], q.attrs[idx[j]])) continue;
                     size_t c = cell2(q.attrs[idx[i]], q.attrs[idx[j]], q.vals[idx[i]], q.vals[idx[j]]);
                     if (c2[c] * inv_beta < nb) nb = c2[c] * inv_beta, Wa = W2[c], Va = V2[c];
                 }
@@ -605,6 +874,72 @@ static double rake_query(const Query& q, std::vector<double>& T, double N, const
     return T[full];
 }
 
+// =============================================================== dyadic range anchors
+// Exact counters of the dyadic intervals of the range attributes, levels 1 .. L_a - 1 (level 0,
+// the single values, is the attribute's C1 row). Level l of attribute a counts the records by
+// the interval index r_a >> l, directly when there are at most `wr` intervals at that level and
+// hashed into wr counters otherwise. A range predicate is anchored to the summed counts of the
+// cells of its canonical dyadic cover; the sample's weight in the same cells (with multiplicity,
+// as a record may collide into several of them) is computed at query time.
+struct DyadCnt {
+    uint32_t wr = 0;
+    std::vector<int32_t> ridx;              // attribute -> index among the range attributes, or -1
+    std::vector<uint32_t> attrs, L;         // range attributes and their numbers of levels
+    std::vector<size_t> off;                // per (range attribute, level): first counter
+    std::vector<uint32_t> width;            // per (range attribute, level): table width
+    std::vector<uint8_t> direct;            // per (range attribute, level)
+    std::vector<uint64_t> seed;             // per (range attribute, level)
+    std::vector<uint32_t> c;
+    bool on() const { return !attrs.empty(); }
+    uint64_t mem_bits() const { return 32ull * c.size(); }
+    // levels[a] = number of dyadic levels of attribute a (0 or 1: not a range attribute)
+    static uint64_t bits_for(const std::vector<uint32_t>& levels, const std::vector<uint32_t>& maxv, uint32_t wr) {
+        uint64_t t = 0;
+        for (size_t a = 0; a < levels.size(); a++)
+            for (uint32_t l = 1; l < levels[a]; l++) t += std::min<uint64_t>(wr, ((uint64_t)maxv[a] >> l) + 1);
+        return 32ull * t;
+    }
+    void init(uint32_t p, const std::vector<uint32_t>& levels, const std::vector<uint32_t>& maxv, uint32_t wr_, uint64_t s0) {
+        wr = wr_;
+        ridx.assign(p, -1);
+        Rng r(s0);
+        size_t t = 0;
+        for (uint32_t a = 0; a < p; a++) {
+            if (levels[a] < 2) continue;
+            ridx[a] = (int32_t)attrs.size();
+            attrs.push_back(a);
+            L.push_back(levels[a]);
+            for (uint32_t l = 0; l < levels[a]; l++) {
+                uint64_t n = l == 0 ? 0 : std::min<uint64_t>(wr, ((uint64_t)maxv[a] >> l) + 1);
+                off.push_back(t);
+                width.push_back((uint32_t)n);
+                direct.push_back(l > 0 && ((uint64_t)maxv[a] >> l) + 1 <= wr);
+                seed.push_back(r.next());
+                t += n;
+            }
+        }
+        c.assign(t, 0);
+    }
+    inline size_t tab(uint32_t i, uint32_t l) const { // index of (range attribute i, level l)
+        size_t k = 0;
+        for (uint32_t j = 0; j < i; j++) k += L[j];
+        return k + l;
+    }
+    inline size_t cellt(size_t t, uint64_t x) const {
+        return off[t] + (direct[t] ? (size_t)std::min<uint64_t>(x, width[t] - 1) : (size_t)bucket_of((uint32_t)x, seed[t], width[t]));
+    }
+    inline void add(const uint32_t* rec) {
+        size_t t = 0;
+        for (size_t i = 0; i < attrs.size(); i++) {
+            t++; // level 0 is the C1 row
+            for (uint32_t l = 1; l < L[i]; l++, t++) c[cellt(t, (uint64_t)rec[attrs[i]] >> l)]++;
+        }
+    }
+    void merge(const DyadCnt& o) {
+        for (size_t i = 0; i < c.size(); i++) c[i] += o.c[i];
+    }
+};
+
 // =============================================================== CoStrata
 // One Count-Min-style row of w exact counters per attribute defines p hash
 // stratifications of the stream (plus the trivial stratification {all}).
@@ -629,8 +964,11 @@ struct CoStrata {
     std::vector<std::vector<uint32_t>> col;     // p columns of M
     std::vector<uint32_t> u;                    // M priorities, 32-bit fixed point: (u + 0.5) / 2^32
     MargCal mc;                                 // optional pair/triple tables (calibration only)
+    DyadCnt dy;                                 // optional dyadic counters of range attributes (calibration only)
     // query-time working state (built by finalize)
     std::vector<double> invpi, Wb, Vb;
+    double Wtot = 0, Vtot = 0;                  // sample weight / variance mass of all rows (anchor N)
+    uint32_t nmax_c1 = 0;                       // min over attributes of the largest C1 count
     // Optional query-time index: for every attribute, the stored rows grouped by C1 bucket
     // (CSR layout, p * (w + 1 + size) 32-bit words). A query then scans only the rows of the
     // bucket with the fewest stored rows among those addressed by its predicates.
@@ -659,12 +997,18 @@ struct CoStrata {
     }
     static uint64_t bits_per_row(uint32_t p) { return 32ull * p + 32; }
     static inline double prio(uint32_t x) { return ((double)x + 0.5) * (1.0 / 4294967296.0); }
-    uint64_t mem_bits() const { return M * bits_per_row(p) + 32ull * cnt.size() + mc.mem_bits(); }
-    static uint64_t rows_for_budget(uint64_t bits, uint32_t p, uint32_t w, uint64_t cal_bits = 0) {
+    uint64_t mem_bits() const { return M * bits_per_row(p) + 32ull * cnt.size() + mc.mem_bits() + dy.mem_bits(); }
+    // row_extra: further bits charged per row (e.g. 32 p for the query-time index)
+    static uint64_t rows_for_budget(uint64_t bits, uint32_t p, uint32_t w, uint64_t cal_bits = 0, uint64_t row_extra = 0) {
         uint64_t fixed = 32ull * p * w + cal_bits;
-        return bits > fixed ? (bits - fixed) / bits_per_row(p) : 0;
+        return bits > fixed ? (bits - fixed) / (bits_per_row(p) + row_extra) : 0;
     }
-    void enable_marginals(uint32_t w2, uint32_t w3, double beta = 1.0) { mc.init(p, w2, w3, useed ^ 0xC2B2AE3D27D4EB4FULL, beta); } // before the first insert
+    void enable_marginals(uint32_t w2, uint32_t w3, double beta = 1.0, const std::vector<std::pair<uint32_t, uint32_t>>* sel = nullptr) {
+        mc.init(p, w2, w3, useed ^ 0xC2B2AE3D27D4EB4FULL, beta, sel); // before the first insert
+    }
+    void enable_ranges(const std::vector<uint32_t>& levels, const std::vector<uint32_t>& maxv) {
+        dy.init(p, levels, maxv, w, useed ^ 0x2545F4914F6CDD1DULL);
+    }
     inline double sfun(double n) const { return gamma == 1.0 ? n : std::pow(n, gamma); }
     inline double nstar_slot(uint64_t s) const {
         uint32_t nmin = UINT32_MAX;
@@ -682,6 +1026,7 @@ struct CoStrata {
             nmin = std::min(nmin, c);
         }
         if (mc.on()) mc.add(rid, rec);
+        if (dy.on()) dy.add(rec);
         double ns = sfun((double)nmin);
         if (lf > 0) {
             double g = (double)N / (lf * (double)E);
@@ -718,12 +1063,58 @@ struct CoStrata {
         }
         size = o;
     }
+    // Merge a CoStrata built with the same parameters and seed over a disjoint part of the stream
+    // (both before finalize). Counters add, the threshold becomes the smaller one, and a row of
+    // either store is kept iff u_r * nstar_r < B under the merged counters. Since nstar_r can only
+    // grow and B only shrink, every row passing this test had passed the test of its own part, so the
+    // merged store holds exactly the rows of either part that a synopsis with the merged counters and
+    // threshold B selects; it is then compacted to capacity as during ingestion.
+    void merge(const CoStrata& o) {
+        N += o.N;
+        for (size_t i = 0; i < cnt.size(); i++) cnt[i] += o.cnt[i];
+        E = 0;
+        for (uint32_t c : cnt) E += c > 0;
+        if (lf > 0) G = std::max(std::max(G, o.G), (double)N / (lf * (double)E));
+        Bcur = std::min(Bcur, o.Bcur);
+        if (mc.on()) mc.merge(o.mc);
+        if (dy.on()) dy.merge(o.dy);
+        uint64_t tot = size + o.size;
+        if (tot > M) {
+            for (auto& c : col) c.resize(tot);
+            u.resize(tot);
+        }
+        for (uint64_t s = 0; s < o.size; s++) {
+            for (uint32_t a = 0; a < p; a++) col[a][size + s] = o.col[a][s];
+            u[size + s] = o.u[s];
+        }
+        size = tot;
+        uint64_t k = 0;
+        for (uint64_t s = 0; s < size; s++) {
+            if (!(prio(u[s]) * nstar_slot(s) < Bcur)) continue;
+            if (k != s) {
+                for (uint32_t a = 0; a < p; a++) col[a][k] = col[a][s];
+                u[k] = u[s];
+            }
+            k++;
+        }
+        size = k;
+        while (size >= M) compact();
+        for (auto& c : col) c.resize(M);
+        u.resize(M);
+    }
     // Drop stale rows, compute Horvitz-Thompson weights and per-stratum aggregates.
     void finalize() {
         uint64_t o = 0;
         invpi.assign(size, 0.0);
         Wb.assign((size_t)p * w, 0.0);
         Vb.assign((size_t)p * w, 0.0);
+        Wtot = Vtot = 0;
+        nmax_c1 = UINT32_MAX;
+        for (uint32_t a = 0; a < p; a++) {
+            uint32_t mx = 0;
+            for (uint32_t b = 0; b < w; b++) mx = std::max(mx, cnt[(size_t)a * w + b]);
+            nmax_c1 = std::min(nmax_c1, mx);
+        }
         mc.begin_weights();
         std::vector<uint32_t> rowbuf(p);
         for (uint64_t s = 0; s < size; s++) {
@@ -735,6 +1126,8 @@ struct CoStrata {
                 u[o] = u[s];
             }
             invpi[o] = 1.0 / pi;
+            Wtot += 1.0 / pi;
+            Vtot += (1.0 - pi) / (pi * pi);
             for (uint32_t a = 0; a < p; a++) {
                 size_t b = (size_t)a * w + bucket_of(col[a][o], hseed[a], w);
                 Wb[b] += 1.0 / pi;
@@ -751,11 +1144,60 @@ struct CoStrata {
     }
     struct Est {
         double hajek, ht, sd_hajek, sd_ht, cm; // cm = Count-Min style upper bound from the counters
+        // for confidence intervals: number of matching rows (a lower bound on the answer), and
+        // wmax = 1 / pi_q, where pi_q is the smallest inclusion probability that any matching record
+        // can have (from the lightest C1 cell of the query); the calibration factor is hajek / ht
+        double m = 0, wmax = 0;
     };
+    inline bool row_matches(const Query& q, uint64_t s) const {
+        for (size_t i = 0; i < q.attrs.size(); i++) {
+            uint32_t x = col[q.attrs[i]][s];
+            if (q.hi.empty() ? x != q.vals[i] : (x < q.vals[i] || x > q.hi[i])) return false;
+        }
+        return true;
+    }
+    // Count, weight and variance mass of the dyadic anchor of range predicate i of q.
+    void range_anchor(const Query& q, size_t i, double& n, double& W, double& V) const {
+        uint32_t a = q.attrs[i];
+        int32_t ri = dy.ridx[a];
+        uint32_t La = dy.L[ri];
+        uint64_t hi = std::min<uint64_t>(q.hi[i], (1ull << (La - 1)) - 1); // domain [0, 2^(La-1))
+        std::vector<std::pair<uint32_t, uint64_t>> cov;
+        if (q.vals[i] <= hi) dyadic_cover(q.vals[i], hi, cov);
+        size_t t0 = dy.tab((uint32_t)ri, 0);
+        std::vector<size_t> pc(cov.size());
+        n = 0;
+        for (size_t j = 0; j < cov.size(); j++) {
+            uint32_t l = cov[j].first;
+            if (l >= La) l = La - 1; // cannot happen for hi < 2^La
+            if (l == 0) {
+                pc[j] = (size_t)a * w + bucket_of((uint32_t)cov[j].second, hseed[a], w);
+                n += cnt[pc[j]];
+            } else {
+                pc[j] = dy.cellt(t0 + l, cov[j].second);
+                n += dy.c[pc[j]];
+            }
+        }
+        W = V = 0;
+        const uint32_t* ca = col[a].data();
+        for (uint64_t s = 0; s < size; s++) {
+            uint32_t m = 0;
+            for (size_t j = 0; j < cov.size(); j++) {
+                uint32_t l = cov[j].first;
+                size_t c = l == 0 ? (size_t)a * w + bucket_of(ca[s], hseed[a], w) : dy.cellt(t0 + l, (uint64_t)ca[s] >> l);
+                m += c == pc[j];
+            }
+            if (m) {
+                double ip = invpi[s];
+                W += m * ip;
+                V += m * (ip * ip - ip);
+            }
+        }
+    }
     // Estimate calibrated to all anchors of the query (see rake_query).
     double estimate_rake(const Query& q) const {
         const size_t k = q.attrs.size();
-        if (k > 16) return estimate(q).hajek;
+        if (k > 16 || q.has_range()) return estimate(q).hajek;
         std::vector<double> T((size_t)1 << k, 0.0);
         std::vector<const uint32_t*> cp(k);
         for (size_t i = 0; i < k; i++) cp[i] = col[q.attrs[i]].data();
@@ -773,10 +1215,13 @@ struct CoStrata {
     Est estimate(const Query& q) const {
         const uint32_t* c0 = col[q.attrs[0]].data();
         uint32_t v0 = q.vals[0];
-        double num = 0, A = 0;
-        if (indexed) {
+        double num = 0, A = 0, mcount = 0;
+        bool any_eq = false;
+        for (size_t k = 0; k < q.attrs.size(); k++) any_eq |= q.is_eq(k);
+        if (indexed && any_eq) {
             const uint32_t *lo = nullptr, *hi = nullptr;
             for (size_t k = 0; k < q.attrs.size(); k++) {
+                if (!q.is_eq(k)) continue;
                 uint32_t a = q.attrs[k], b = bucket_of(q.vals[k], hseed[a], w);
                 const uint32_t* st = &ix_start[(size_t)a * (w + 1)];
                 const uint32_t* base = &ix_rows[(size_t)a * size];
@@ -784,15 +1229,21 @@ struct CoStrata {
             }
             for (const uint32_t* it = lo; it != hi; ++it) {
                 uint32_t s = *it;
-                bool ok = true;
-                for (size_t k = 0; k < q.attrs.size(); k++)
-                    if (col[q.attrs[k]][s] != q.vals[k]) { ok = false; break; }
-                if (ok) {
+                if (row_matches(q, s)) {
                     double ip = invpi[s];
                     num += ip;
                     A += ip * ip - ip;
+                    mcount++;
                 }
             }
+        } else if (q.has_range()) {
+            for (uint64_t s = 0; s < size; s++)
+                if (row_matches(q, s)) {
+                    double ip = invpi[s];
+                    num += ip;
+                    A += ip * ip - ip;
+                    mcount++;
+                }
         } else
         for (uint64_t s = 0; s < size; s++) {
             if (c0[s] != v0) continue;
@@ -803,21 +1254,40 @@ struct CoStrata {
                 double ip = invpi[s];
                 num += ip;
                 A += ip * ip - ip; // (1-pi)/pi^2
+                mcount++;
             }
         }
         // lightest stratum touched by the query
-        size_t best = 0;
+        size_t best = SIZE_MAX;
         double nb = 1e300;
         for (size_t k = 0; k < q.attrs.size(); k++) {
+            if (!q.is_eq(k)) continue;
             size_t b = (size_t)q.attrs[k] * w + bucket_of(q.vals[k], hseed[q.attrs[k]], w);
             if (cnt[b] < nb) nb = cnt[b], best = b;
         }
-        double Wa = Wb[best], Va = Vb[best];
-        mc.anchor(q, nb, Wa, Va); // lighter pair/triple cell, if any
+        double n1 = nb; // lightest C1 cell: bounds the inclusion probability of matching records
+        double Wa = best == SIZE_MAX ? 0.0 : Wb[best], Va = best == SIZE_MAX ? 0.0 : Vb[best];
+        if (q.has_range()) {
+            mc.anchor(q.eq_part(), nb, Wa, Va);
+            if (dy.on())
+                for (size_t k = 0; k < q.attrs.size(); k++) {
+                    if (q.is_eq(k) || dy.ridx[q.attrs[k]] < 0) continue;
+                    double n, W, V;
+                    range_anchor(q, k, n, W, V);
+                    if (n < nb) nb = n, Wa = W, Va = V;
+                }
+            if (nb >= (double)N) nb = (double)N, Wa = Wtot, Va = Vtot; // the stream size is an anchor too
+        } else
+            mc.anchor(q, nb, Wa, Va); // lighter pair/triple cell, if any
         Est e;
         e.ht = num;
         e.sd_ht = std::sqrt(A);
         e.cm = (double)nb;
+        e.m = mcount;
+        double nsq = sfun(best == SIZE_MAX ? (double)nmax_c1 : n1);
+        if (lf > 0 && G < nsq) nsq = G;
+        double piq = std::min(1.0, Bcur / nsq);
+        e.wmax = 1.0 / piq;
         if (Wa > 0) {
             double R = num / Wa;
             double scale = (double)nb / Wa;
@@ -832,28 +1302,31 @@ struct CoStrata {
     }
 };
 
-// =============================================================== USS + calibration
-// USS over full tuples plus one row of w exact counters per attribute; the
-// subset-sum estimate is ratio-calibrated to the exact count of the lightest
-// hash stratum touched by the query (same calibration as CoStrata).
-struct USSC {
-    USS uss;
+// =============================================================== tuple sketches + calibration
+// A tuple-aggregating sketch (USS or CocoSketch) over full tuples plus one row of w exact counters
+// per attribute (and optional pair/triple tables); the subset-sum estimate is ratio-calibrated to
+// the exact count of the lightest cell addressed by the query (same calibration as CoStrata).
+template <class TS>
+struct TupleCal {
+    TS uss; // the tuple sketch (named after the first instance, USS)
     uint32_t p, w;
     std::vector<uint64_t> hseed;
     std::vector<uint32_t> cnt;
     std::vector<double> Wb;
     MargCal mc;
     uint64_t mseed;
-    USSC(uint32_t p_, uint32_t w_, uint64_t m, uint64_t seed) : uss(p_, m, seed), p(p_), w(w_), hseed(p_), cnt((size_t)p_ * w_, 0) {
+    TupleCal(uint32_t p_, uint32_t w_, uint64_t m, uint64_t seed) : uss(p_, m, seed), p(p_), w(w_), hseed(p_), cnt((size_t)p_ * w_, 0) {
         Rng r(seed ^ 0x5bd1e995);
         for (auto& x : hseed) x = r.next();
         mseed = r.next();
     }
     static uint64_t rows_for_budget(uint64_t bits, uint32_t p, uint32_t w, uint64_t cal_bits = 0) {
         uint64_t fixed = 32ull * p * w + cal_bits;
-        return bits > fixed ? (bits - fixed) / USS::bits_per_row(p) : 0;
+        return bits > fixed ? (bits - fixed) / TS::bits_per_row(p) : 0;
     }
-    void enable_marginals(uint32_t w2, uint32_t w3, double beta = 1.0) { mc.init(p, w2, w3, mseed, beta); }
+    void enable_marginals(uint32_t w2, uint32_t w3, double beta = 1.0, const std::vector<std::pair<uint32_t, uint32_t>>* sel = nullptr) {
+        mc.init(p, w2, w3, mseed, beta, sel);
+    }
     uint64_t mem_bits() const { return uss.mem_bits() + 32ull * cnt.size() + mc.mem_bits(); }
     inline void insert(uint64_t rid, const uint32_t* rec) {
         for (uint32_t a = 0; a < p; a++) cnt[(size_t)a * w + bucket_of(rec[a], hseed[a], w)]++;
@@ -863,25 +1336,29 @@ struct USSC {
     void finalize() {
         Wb.assign((size_t)p * w, 0.0);
         mc.begin_weights();
-        for (uint64_t s = 0; s < uss.size; s++) {
-            for (uint32_t a = 0; a < p; a++)
-                Wb[(size_t)a * w + bucket_of(uss.keys[s * p + a], hseed[a], w)] += uss.cnt[s];
-            if (mc.on()) mc.add_weight(&uss.keys[s * p], (double)uss.cnt[s], 0.0);
-        }
+        uss.for_each([&](const uint32_t* key, double c) {
+            for (uint32_t a = 0; a < p; a++) Wb[(size_t)a * w + bucket_of(key[a], hseed[a], w)] += c;
+            if (mc.on()) mc.add_weight(key, c, 0.0);
+        });
     }
     double estimate(const Query& q) const {
         double num = uss.estimate(q);
         size_t best = 0;
         double nb = 1e300;
         for (size_t k = 0; k < q.attrs.size(); k++) {
+            if (!q.is_eq(k)) continue;
             size_t b = (size_t)q.attrs[k] * w + bucket_of(q.vals[k], hseed[q.attrs[k]], w);
             if (cnt[b] < nb) nb = cnt[b], best = b;
         }
+        if (nb == 1e300) return num; // no equality predicate: the tuple counts already sum to N
         double Wa = Wb[best], Va = 0;
-        mc.anchor(q, nb, Wa, Va);
+        if (q.has_range()) mc.anchor(q.eq_part(), nb, Wa, Va);
+        else mc.anchor(q, nb, Wa, Va);
         return Wa > 0 ? (double)nb * num / Wa : 0.0;
     }
 };
+using USSC = TupleCal<USS>;
+using CocoC = TupleCal<Coco>;
 
 // =============================================================== CoStrata-H (hold variant)
 // CoStrata over *distinct tuples* with sample-and-hold counting. The thresholds are those of
@@ -1050,25 +1527,41 @@ struct CoStrataH {
     }
     struct Est {
         double hajek, ht, sd_hajek, cm;
+        double m = 0, wmax = 0; // held count of the matching entries (a lower bound); see CoStrata::Est
     };
     Est estimate(const Query& q) const {
-        double num = 0, A = 0;
+        double num = 0, A = 0, held = 0;
         for (uint64_t s = 0; s < size; s++) {
             if (!q.matches(&keys[(size_t)s * p])) continue;
             num += est[s];
             A += evar[s];
+            held += c[s];
         }
-        size_t best = 0;
+        size_t best = SIZE_MAX;
         double nb = 1e300;
         for (size_t k = 0; k < q.attrs.size(); k++) {
+            if (!q.is_eq(k)) continue;
             size_t b = (size_t)q.attrs[k] * w + bucket_of(q.vals[k], hseed[q.attrs[k]], w);
             if (cnt[b] < nb) nb = cnt[b], best = b;
         }
-        double Wa = Wb[best], Va = Vb[best];
-        mc.anchor(q, nb, Wa, Va);
+        double n1 = nb;
+        double Wa = 0, Va = 0;
+        if (best != SIZE_MAX) Wa = Wb[best], Va = Vb[best];
+        if (q.has_range()) mc.anchor(q.eq_part(), nb, Wa, Va);
+        else mc.anchor(q, nb, Wa, Va);
+        if (nb >= (double)N) {
+            nb = (double)N;
+            Wa = Va = 0;
+            for (uint64_t s = 0; s < size; s++) Wa += est[s], Va += evar[s];
+        }
         Est e;
         e.ht = num;
         e.cm = (double)nb;
+        e.m = held;
+        double nsq = best == SIZE_MAX ? (double)N : n1;
+        if (lf > 0 && G < nsq) nsq = G;
+        double tq = std::min(1.0, Bcur / nsq);
+        e.wmax = 1.0 / tq;
         if (Wa > 0) {
             double R = num / Wa;
             double scale = (double)nb / Wa;

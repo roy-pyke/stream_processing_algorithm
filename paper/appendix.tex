@@ -1,0 +1,440 @@
+\documentclass[sigconf,review,anonymous]{acmart}
+% Appendix of paper.tex, submitted as a separate PDF (SIGMOD 2027 CfP: "only essential details",
+% the paper is self-contained). References to the paper use the prefix P- (package xr).
+\settopmatter{printacmref=false}
+\setcopyright{none}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\acmConference[SIGMOD '27]{ACM SIGMOD International Conference on Management of Data}{2027}{}
+
+\usepackage{booktabs}
+\usepackage{xspace}
+\usepackage{xr}
+\externaldocument[P-]{paper}
+
+\AtEndPreamble{\theoremstyle{acmplain}\newtheorem{observation}[theorem]{Observation}}
+\newcommand{\cs}{\textsc{CoStrata}\xspace}
+\newcommand{\csh}{\textsc{CoStrata-H}\xspace}
+\newcommand{\omni}{OmniSketch\xspace}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\mathrm{Var}}
+\newcommand{\nstar}{n^{\star}}
+\newcommand{\pref}[1]{\ref{P-#1}}
+\input{numbers}
+
+\begin{document}
+
+\title{Appendix to ``Counters for Marginals, Rows for the Rest: Calibrated Row Sampling for Ad-hoc
+Predicate Counting on Streams''}
+\author{Anonymous Author(s)}
+\affiliation{\institution{Submission to SIGMOD 2027}\country{}}
+\keywords{data streams, sampling, sketches, calibration}
+\maketitle
+
+\noindent This appendix contains the proofs omitted from the paper (Appendix~\ref{app:proofs}), the
+validation of our \omni implementations against the authors' code (Appendix~\ref{app:validation}), the
+insert-only setting of the journal version of \omni (Appendix~\ref{app:journal}), and additional results
+(Appendix~\ref{app:more}). Section, theorem and table numbers without the prefix ``A'' refer to the paper.
+
+\appendix
+
+\section{Proofs}\label{app:proofs}
+
+Throughout, the hash functions and the stream are fixed, and probabilities are over the record
+priorities. The anchor $c^\star$ of a query is a function of the counters, which are determined by the
+stream and the hash functions; it does not depend on the priorities, so conditioning on it introduces no
+selection bias.
+
+\subsection{Pair tables}
+
+\begin{proposition}[Pair tables]\label{prop:pair}
+Let $q$ be a two-predicate query on attributes $a<b$, and let the table of $(a,b)$ use a pairwise
+independent hash function into $w_2$ cells. In expectation over that hash function, the linearised
+variance of the calibrated estimator (Eq.~\pref{eq:cal}) with the pair cell as anchor is at most
+$\bigl(\tfrac1\rho-1\bigr)\min\bigl\{f(q),\,(N-f(q))/w_2\bigr\}$.
+\end{proposition}
+\begin{proof}
+Let $Z=n_c-f$ be the number of records with a different value pair that collide with the query's pair.
+By Proposition~\pref{prop:calvar} the variance is $(1/\rho-1)\,fZ/(f+Z)$, which is concave in $Z$ and at
+most $(1/\rho-1)\min(f,Z)$. Pairwise independence gives $\E Z\le(N-f)/w_2$, and Jensen's inequality
+gives $\E[fZ/(f+Z)]\le f\,\E Z/(f+\E Z)\le\min(f,\E Z)$.
+\end{proof}
+
+\subsection{Proof of Theorem~\pref{thm:calbound}}
+
+Write $n=n_{c^\star}$, $f=f(q)$, $R=f/n$, and $y_r=[r\in q]$ for $r\in c^\star$. Let $I_r$ indicate that
+record $r$ is sampled; $\hat f_{\mathrm{HT}}=\sum_{r\in c^\star}I_ry_r/\pi_r$ and
+$W=\sum_{r\in c^\star}I_r/\pi_r$ (records outside $c^\star$ do not match $q$ and do not enter $W$).
+
+\paragraph{(a) Equal rates.} Let $\pi_r=\rho$ and let $k=\sum_{r\in c^\star}I_r$ and $X=\sum_rI_ry_r$.
+Then $\hat f_{\mathrm C}=nX/k$ if $k\ge1$ and $0$ otherwise. The indicators are i.i.d., so conditionally
+on $k$ the sampled records of $c^\star$ form a uniformly random $k$-subset, and $X$ is hypergeometric with
+$\E[X\mid k]=kf/n$. Hence $\E[\hat f_{\mathrm C}\mid k]=f$ for every $k\ge1$ and
+$\E\hat f_{\mathrm C}=f\Pr[k\ge1]=f\bigl(1-(1-\rho)^n\bigr)$, so the bias is $-f(1-\rho)^n\in[-fe^{-\rho n},0]$.
+Hoeffding's inequality holds for sampling without replacement~\cite[Thm.~4]{hoeffding}, so
+$\Pr[|X/k-R|>\epsilon\mid k]\le2e^{-2k\epsilon^2}$. Since $|\hat f_{\mathrm C}-f|=n|X/k-R|$,
+\[
+ \Pr\bigl[|\hat f_{\mathrm C}-f|>\epsilon n\bigr]\le\Pr[k<\rho n/2]+\max_{k\ge\rho n/2}2e^{-2k\epsilon^2},
+\]
+which is at most $e^{-\rho n/8}+2e^{-\epsilon^2\rho n}$,
+using the multiplicative Chernoff bound $\Pr[k<(1-\frac12)\E k]\le e^{-\E k/8}$ for the binomial $k$
+(the event $k=0$ is included). For a uniform sample of fixed size $M$ out of $N$ (a reservoir), the sampled
+records of $c^\star$ are again, conditionally on $k$, a uniform $k$-subset, and $k$ is hypergeometric,
+for which the same Chernoff bound holds~\cite{hoeffding}; so (a) and Corollary~\pref{cor:samples} hold
+with $\rho=M/N$.
+
+\paragraph{Corollary~\pref{cor:samples}.} If $\rho n\ge\ln(3/\delta)/\epsilon^2$ then
+$2e^{-\epsilon^2\rho n}\le2\delta/3$, and if moreover $\epsilon\le1/3$, then $\rho n\ge9\ln(3/\delta)\ge
+8\ln(3/\delta)$ and $e^{-\rho n/8}\le\delta/3$.
+
+\paragraph{(b) Unequal rates.} Because $\sum_{r\in c^\star}(y_r-R)=0$,
+\[
+ \hat f_{\mathrm C}-f=\frac nW\bigl(\hat f_{\mathrm{HT}}-RW\bigr)=\frac nW\,D,\qquad
+ D=\sum_{r\in c^\star}\Bigl(\frac{I_r}{\pi_r}-1\Bigr)(y_r-R).
+\]
+The summands of $D$ are independent, have mean zero and are bounded in absolute value by
+$\max(1/\pi_r-1,1)\cdot\max(R,1-R)\le1/\rho$, and
+$\Var D=\sum_r(1/\pi_r-1)(y_r-R)^2\le(1/\rho-1)\sum_r(y_r-R)^2=(1/\rho-1)f(1-R)=:v$. Bernstein's
+inequality~\cite[Thm.~2.10]{concentration} gives $\Pr[|D|\ge t]\le2\exp\bigl(-t^2/(2(v+t/(3\rho)))\bigr)$,
+and $t=\sqrt{2vL}+\frac23L/\rho$ with $L=\ln(2/\delta)$ satisfies $t^2\ge2L(v+t/(3\rho))$, so
+$|D|<\sqrt{2vL}+\frac23L/\rho$ with probability at least $1-\delta$. For the denominator, $W$ is a sum of
+independent non-negative terms with $\E W=n$ and $\sum_r\E[(I_r/\pi_r)^2]=\sum_r1/\pi_r\le n/\rho$;
+Maurer's inequality~\cite{maurer} gives $\Pr[W\le n-t]\le\exp(-t^2\rho/(2n))$, i.e.,
+$\Pr[W\le n/2]\le e^{-\rho n/8}$. On the intersection of both events, $|\hat f_{\mathrm C}-f|\le2|D|$,
+which is the claim.
+
+\paragraph{(c) Collisions.} Let $c^\star$ be the pair cell (or any lighter cell addressed by $q$) and
+$Z=n-f$. Then $f(1-f/n)=fZ/(f+Z)\le\min(f,Z)$. Every record whose value pair differs from the query's
+collides with probability at most $1/w_2$, so $\E Z\le(N-f)/w_2$, and by Markov's inequality
+$Z\le(N-f)/(\delta'w_2)$ with probability at least $1-\delta'$ over the hash function. Substituting in (b)
+and taking a union bound proves (c).
+
+\paragraph{Remarks.} The analysis assumes Poisson sampling at thresholds that do not depend on the
+priorities. For \cs, whose threshold $B$ is chosen by the budget control, Theorem~\pref{thm:unbiased}
+shows that the HT sums $\hat f_{\mathrm{HT}}$ and $W$ remain unbiased, but the tail bound is stated for
+fixed thresholds only. For conjunctions with more predicates than the order of the tables, $n$ can be much
+larger than $f$, and the bound is additive in $n$; Cormode, Dickens and Woodruff~\cite{projfreq} show that
+for column subsets revealed after the data, many projected-frequency problems need space exponential in
+the number of columns, so a guarantee relative to $f$ for every subset is out of reach in polynomial
+space. Our guarantee is relative to $f$ exactly where an exact (up to collisions) table addresses all of
+the query's attributes.
+
+\subsection{Proof of Theorem~\pref{thm:hold}}
+
+\paragraph{Idealised process.} Give every row $r$ of the stream an i.i.d.\ uniform priority $u_r$ and let
+$\mathcal D(u)$ be the deterministic process that performs exactly the operations of \csh, with every
+priority it needs read from $u$: when a row of a tuple without an entry arrives, its priority is compared
+with the tuple's current threshold; counted rows are not inspected; re-anchoring an entry whose start
+priority is no longer below the threshold $\tau$ moves the start to the first later counted row with
+priority below $\tau$, or drops the entry if there is none. The implementation draws the number of skipped
+rows from a geometric distribution with parameter $\tau$ and the new start priority uniformly from
+$[0,\tau)$; since the rows after a start were never inspected, these are exactly the conditional
+distributions of the corresponding quantities of $\mathcal D(u)$ given everything inspected so far
+(principle of deferred decisions). Hence the state of the implementation at any time has the same
+distribution as that of $\mathcal D(u)$, and it suffices to analyse $\mathcal D$.
+
+\paragraph{Notation.} Thresholds only decrease: $\nstar_t$ is non-decreasing in time and $B$
+non-increasing, so $\tau_t(T)=\min(1,B(T)/\nstar_t(T))$ is non-increasing. Let $\tau_t$ be the final
+threshold and $S_t=\{r\in t:u_r<\tau_t\}$. After the final resolution at query time, tuple $t$ holds an
+entry iff $S_t\ne\emptyset$, its start is the first row of $S_t$, and its count $c_t$ is the number of rows
+of $t$ from the start on: every row of $t$ before the start was compared, at its arrival or during a
+re-anchoring, with a threshold that is at least $\tau_t$ and found not below it.
+
+\paragraph{Per-row substitution.} Fix a row $r$ of tuple $t$ and all priorities except $u_r$. Let
+$\mathcal D^0$ be the run with $u_r$ replaced by $0$, and $\tau^0_t$ the final threshold of $t$ in
+$\mathcal D^0$, a function of $u_{-r}$ only. We show: $u_r<\tau^0_t$ iff $r\in S_t$, and in that case both
+runs have the same trajectory of $B$, so $\tau_t=\tau^0_t$.
+
+Suppose $u_r<\tau^0_t$ and consider the two runs event by event. Before $r$ arrives they coincide. We
+maintain the invariant that both runs have the same $B$, the same counters and the same entries with the
+same counts and starts, and that the start priorities coincide except that the entry of $t$ may start at
+$r$, with priority $0$ in $\mathcal D^0$ and $u_r$ in $\mathcal D(u)$. Because $\tau_t(T)\ge\tau^0_t>u_r$ in
+$\mathcal D^0$ at every time $T$, and the runs agree on $\tau_t(T)$ as long as the invariant holds, (i) when
+$r$ arrives and $t$ holds no entry, $r$ opens one in both runs; (ii) whenever an entry of $t$ is
+re-anchored, $r$ qualifies as a start in both runs (and the earlier rows qualify identically); (iii) an
+entry starting at $r$ is never re-anchored in either run. It remains to show that every selection returns
+the same $B$. A compaction computes $z_e=u_{\mathrm{start}(e)}\nstar_e$ for all entries and sets
+$B'=\min(B,\,\text{the }(K{+}1)\text{-st smallest }z_e)$. The multisets of $z$-values are $\{0\}\cup Z$ in
+$\mathcal D^0$ and $\{z_r\}\cup Z$ in $\mathcal D(u)$, where $z_r=u_r\nstar_t$ if the entry of $t$ starts at
+$r$ (otherwise they are equal). In $\mathcal D^0$ the $(K{+}1)$-st smallest value is the $K$-th smallest
+of $Z$, and since $u_r<\tau^0_t\le B'^{\,0}/\nstar_t$ we have $z_r<B'^{\,0}\le$ the $K$-th smallest of $Z$; so
+$z_r$ is also among the $K$ smallest values in $\mathcal D(u)$, whose $(K{+}1)$-st smallest is again the
+$K$-th smallest of $Z$. Both runs obtain the same $B'$, re-anchor the same entries in the same way (by
+(ii) and (iii)), and repeat the selection the same number of times. Insertions of other tuples depend only
+on $B$ and the counters. By induction the invariant holds until query time, so $\tau_t=\tau^0_t>u_r$ and
+$r\in S_t$.
+
+Conversely, suppose $r\in S_t$, i.e., $u_r<\tau_t$. The same induction with the roles of the runs exchanged
+applies: now $u_r<\tau_t\le\tau_t(T)$ in $\mathcal D(u)$ at all times, and at a selection in $\mathcal D(u)$
+with result $B'$ we have $z_r<B'$; if $z_r$ were not below the $(K{+}1)$-st smallest value $q$ of
+$\{z_r\}\cup Z$, then $B'\le q\le z_r$, a contradiction; so $z_r$ is among the $K$ smallest, both
+$(K{+}1)$-st smallest values equal the $K$-th smallest of $Z$, and the runs coincide. Hence
+$\tau^0_t=\tau_t>u_r$. (Ties among $z$-values have probability zero.)
+
+\paragraph{Unbiasedness of the row-level estimate.} Since $u_r$ is uniform and independent of $u_{-r}$,
+$\Pr[r\in S_t\mid u_{-r}]=\Pr[u_r<\tau^0_t\mid u_{-r}]=\tau^0_t$, and $\tau_t=\tau^0_t$ on that event.
+Therefore $\E[\mathbf 1_{r\in S_t}/\tau_t\mid u_{-r}]=1$, and $H=\sum_ty_t|S_t|/\tau_t$ satisfies
+$\E H=\sum_ty_tm_t$.
+
+\paragraph{Rao--Blackwellisation.} Let $\mathcal F$ be the information revealed by the implementation up
+to query time (all comparisons it made, the start priorities and the final state). Given $\mathcal F$, the
+$c_t-1$ rows after the start of a held tuple were never inspected, so their priorities are i.i.d.\
+uniform and independent of $\tau_t$, which is $\mathcal F$-measurable; the start is in $S_t$; and all
+earlier rows of $t$, and all rows of a tuple without an entry, are known to lie outside $S_t$. Hence
+$\E[|S_t|\mid\mathcal F]=1+(c_t-1)\tau_t$ if $t$ holds an entry and $0$ otherwise, i.e.,
+$\E[|S_t|/\tau_t\mid\mathcal F]=X_t$. By the tower property $\E\sum_ty_tX_t=\E H=\sum_ty_tm_t$, and by the
+law of total variance $\Var\sum_ty_tX_t\le\Var H$.
+
+\paragraph{Variance for a fixed schedule.} If the thresholds do not depend on the priorities, the rows of
+$t$ are in $S_t$ independently with probability $\tau=\tau_t$; with $J$ the index of the first such row,
+$X_t=m_t-J+1/\tau$ if $J\le m_t$ and $0$ otherwise, and a direct computation gives $\E X_t=m_t$ and
+$\Var X_t=(1-\tau)\bigl(1-(1-\tau)^{m_t}\bigr)/\tau^2=\E\bigl[(1-\tau)\mathbf 1_{\text{entry}}/\tau^2\bigr]$.
+The $X_t$ of different tuples are independent, so $\sum_ty_t^2(1-\tau_t)\mathbf 1_{\text{entry}}/\tau_t^2$
+is an unbiased estimate of $\Var\sum_ty_tX_t$. Under budget control we use it as a plug-in estimate.
+\qed
+
+\subsection{Propositions of Section~\pref{sec:anatomy}}
+
+\paragraph{Proposition~\pref{prop:hoeffding}.} $|S\cap q|/m$ is a mean of $m$ indicators with expectation
+$f(q)/N$; apply Hoeffding's inequality~\cite{hoeffding} (which holds for sampling without replacement) and
+a union bound over $\mathcal Q$. For conjunctions of equalities over $p$ attributes with at most $D$ values
+each, $\ln|\mathcal Q|\le p\ln(D+1)$.
+
+\paragraph{Observation~\pref{obs:min}.} A record is in $\bigcap_cS_c$ iff it is in every $R_c$ and its hash
+is at most every $\tau_c$.
+
+\paragraph{Proposition~\pref{prop:rate}.} The reservoir holds $p\,d\,w\,B\,\beta/(32p)$ rows; compare its
+rate with $\rho_O(q)=B/n_{\max}(q)$. Both synopses then estimate $f(q)$ with variance approximately
+$f(q)(1-\rho)/\rho$, so a lower rate translates directly into a larger error.
+
+\paragraph{Proposition~\pref{prop:bias}.} A record lands in all cells of $C(q)$ iff, for every predicate it
+violates, it collides with the query value in all $d$ rows, which has probability $w^{-d}$ per violated
+predicate, independently. For a two-predicate query on values with marginal frequencies $f_1,f_2$,
+$N_1=f_1+f_2-2f(q)$.
+
+\subsection{Small-count intervals}
+
+Under Poisson sampling at fixed thresholds every matching record $r$ is retained with probability
+$\pi_r\ge\pi_q$ (Section~\pref{sec:ci}), so $\Pr[m=0]=\prod_{r\in q}(1-\pi_r)\le e^{-\pi_qf}$. If
+$f>U=\ln(1/\alpha)/\pi_q$, the probability of observing $m=0$ is below $\alpha$, so reporting $[0,U]$
+when $m=0$ errs with probability at most $\alpha$ for every $f$. For $m\ge1$, the calibrated estimate is a
+weighted sum of (approximately Poisson) indicators, and the gamma interval of Fay and
+Feuer~\cite{fayfeuer} for such sums uses the estimate $y$, its variance estimate $v$ and the largest weight
+$w_M$: the lower limit is the $\alpha/2$ quantile of a gamma distribution with mean $y$ and variance $v$,
+the upper limit the $1-\alpha/2$ quantile of one with mean $y+w_M$ and variance $v+w_M^2$. We use
+$w_M=(n_{c^\star}/W_{c^\star})/\pi_q$, the calibrated weight of one more matching record at the smallest
+rate, and truncate to the hard bounds $[m,n_{c^\star}]$.
+
+\section{Validation against the Authors' Code}\label{app:validation}
+
+\begin{table*}[t]
+\centering\footnotesize\setlength{\tabcolsep}{3pt}
+\caption{Normalized absolute error of \omni implementations on record-sampled queries with $k\ge2$
+predicates (mean of 3 repetitions). ``Thm.~3.3'' is the value returned by the authors' code,
+``scaled'' the estimate it logs and that the published plots use; the C++ port reproduces both columns
+exactly. Zipf$^\dagger$: streams from the authors' generator. RS: row reservoir at the same budget.}
+\label{tab:validation}
+\input{tables/validation}
+\end{table*}
+
+\paragraph{Implementations.} (a)~The Java sources of~\cite{omni} (commit \texttt{8dc67b5} of the
+authors' repository \texttt{omnisketch}) are compiled unmodified (JDK~21) and driven by a harness of about 230 lines that
+replaces only their input/output layer: it reads our binary streams and query files, obtains the sketch
+parameters from their \texttt{RamToPar} and \texttt{DetermineB} classes, and calls their
+\texttt{OmniSketch.add()} and \texttt{query()}. (b)~A C++ port reproduces (a) bit by bit: the
+hash functions based on \texttt{java.util.Random}, the parameter search, the tree-set bookkeeping, both
+estimators and the memory accounting. (c)~Our optimised implementation uses 63-bit hashes, bounded binary
+heaps in flat arrays instead of red-black trees, a dense array of per-cell thresholds so that a rejected
+update costs one comparison per cell, and sorted cells so that intersections are linear merges. (d)~The
+configuration search uses (c) with oracle accounting, which is deliberately more favourable to \omni than
+any deployable configuration, over the nine shapes $(8,3)$, $(28,3)$, $(64,2)$, $(256,2)$, $(1024,2)$,
+$(256,3)$, $(1024,1)$, $(4096,1)$ and $(4096,2)$ of $(w,d)$.
+
+\paragraph{The port is exact.} For \NumValRuns{} runs---\NumValStreams{} streams, budgets of 1, 10, 50 and
+100\,MB, three repetitions---we ran the Java code and the port on the same records and the same
+2\,000--2\,400 queries. All \NumValQueries{} intersection sizes, Theorem~3.3 estimates and scaled
+estimates coincide, as do the selected parameters $(w,d,B,b)$ and the reported memory usage; test vectors
+of the two hash functions are compared separately. In the paper, ``\omni (authors' code)'' is the port
+with the scaled estimator.
+
+\paragraph{The code reproduces the published error levels.} Figure~6 of~\cite{omni} reports the error of
+three-predicate queries on the synthetic streams: about $10^{-5}$ for Zipf with $\alpha=1$,
+$1.3\cdot10^{-4}$ for $\alpha=1.3$ and $2.6\cdot10^{-4}$ for $\alpha=1.5$ at 50--200\,MB, and close to
+zero for the uniform stream. On streams from the authors' generator (Zipf$^\dagger$: value $k$ has rank
+$k$) and for our three-predicate record-sampled queries, their code yields $\NumFigSixZipfTenTen$,
+$\NumFigSixZipfTenFifty$ and $\NumFigSixZipfTenHundred$ ($\alpha=1$; 10, 50 and 100\,MB),
+$\NumFigSixZipfThirteenTen$, $\NumFigSixZipfThirteenFifty$ and $\NumFigSixZipfThirteenHundred$
+($\alpha=1.3$), $\NumFigSixZipfFifteenTen$, $\NumFigSixZipfFifteenFifty$ and
+$\NumFigSixZipfFifteenHundred$ ($\alpha=1.5$), and $\NumFigSixUnifTen$ on the uniform stream: the same
+order, the same levels within a factor of about 1.5, and the same lack of improvement beyond 50\,MB.
+
+\paragraph{R1: the returned estimate.} The method \texttt{query()} implements Eq.~\pref{eq:thm33}: it
+returns the bound $2n_{\max}L/(B\epsilon^2)$ whenever $|S_\cap|<3L/\epsilon^2$ and stores the always-scaled
+value $\lceil|S_\cap|\,n_{\max}/B\rceil$ in a separate field (\texttt{case2Estimate}). With
+$\epsilon=\delta=0.1$ the switch-over point lies between about 2\,600 and 3\,600 sampled records for all
+budgets we use, more than half of $B$ at 10\,MB. The bound is therefore returned for
+\NumValBoundFracLo--\NumValBoundFracHi\% of the multi-predicate queries at every budget from 1 to
+100\,MB, and the returned values are off by $\NumJavaThmNaeLo$--$\NumJavaThmNaeHi$ times the stream size
+(column ``Thm.~3.3'' of Table~\ref{tab:validation}). The analysis notebooks shipped with the journal
+version's repository compute the plotted ``observed error'' from \texttt{case2Estimate}, and the journal
+version's code always returns the scaled estimate. Anyone who benchmarks against the public code through
+its \texttt{query()} interface will measure the first column; we use the scaled estimator, the favourable
+choice.
+
+\paragraph{R2: the cell hash.} A value $v$ is mapped to its $d$ cells by re-seeding a
+\texttt{java.util.Random} with $v$ plus the row number and drawing $d$ integers below $w$; the same function
+is used for all attributes. The first output of this linear congruential generator is, up to a bit mask,
+$\lfloor w\cdot\mathrm{frac}(a\,v/2^{48})\rfloor$ with $a/2^{48}\approx9\cdot10^{-5}$: for $w=8$ the
+first-row cell changes only once every $\approx1\,400$ consecutive integers. With the authors' generator
+the frequent Zipf values are $1,2,3,\dots$ and share one first-row cell, which holds up to
+\NumRowOneShareZipfTen\%, \NumRowOneShareZipfThirteen\% and \NumRowOneShareZipfFifteen\% of the
+Zipf$^\dagger$ streams with $\alpha=1.0$, $1.3$ and $1.5$, and \NumRowOneShareTaxi\% of Taxi and MAWI (with
+our random permutation of the Zipf values: \NumRowOneShareOurZipfTen\% for $\alpha=1$). Since the usable
+rate is $B/n_{\max}$, this costs accuracy: on Zipf$^\dagger$ our implementation with the same $(w,d,B)$ is
+\NumJavaOverOursZipfDagLo--\NumJavaOverOursZipfDagHi$\times$ more accurate than the authors' code (10\,MB
+and more); on our permuted streams the two are within a factor \NumJavaOverOursZipfHi. On dictionary-coded
+attributes with few values, by contrast, the second and third rows act as nearly perfect hash functions:
+on Taxi the authors' code is \NumOursOverJavaTaxiLo--\NumOursOverJavaTaxiHi$\times$ \emph{more} accurate
+than ours; on MAWI the ratio is \NumJavaOverOursMawiLo--\NumJavaOverOursMawiHi. Neither implementation is
+uniformly better, which is why the paper always includes the authors' code and takes the best variant.
+
+\paragraph{R3: hash width and bookkeeping.} The number of hash bits is
+$b=\lceil\ln(4B^{2.5}/\delta)\rceil$ (natural logarithm), 20--31 bits for budgets of 1--100\,MB, and
+record identifiers are mapped to $\{0,\dots,\min(2^b,2^{31}-1)-1\}$, so distinct records share hash values.
+A cell stores a set of distinct hash values, counts a duplicate arrival towards its capacity while filling
+up, and evicts its maximum without inserting when a duplicate arrives later, so cells end up with fewer
+than $B$ values (at 10\,MB the sketch uses \NumJavaUsedTen\,MB of the nominal \NumJavaNominalTen\,MB). This
+explains the collapse of the authors' code below 5\,MB.
+
+\paragraph{R4: the synthetic generator.} In the public snapshot the method that creates the synthetic
+streams overwrites its exponent argument with $\alpha=1.5$, so that all four ``distributions'' of the
+sensitivity experiment would be generated identically. We call the underlying Zipf generator directly.
+
+\section{The Journal Version's Sampling Baseline}\label{app:journal}
+
+\begin{table*}[t]
+\centering\footnotesize\setlength{\tabcolsep}{2.5pt}
+\caption{Journal-style stream (9 Zipf$^\dagger$ attributes with $\alpha=1.3$, 5 million records):
+normalized absolute error for the journal version's query procedure and for our record-sampled queries
+(mean of 3 seeds). ``Journal acct.'': memory accounting of that version's code.}
+\label{tab:journal}
+\input{tables/journal}
+\end{table*}
+
+\begin{table*}[t]
+\centering\footnotesize\setlength{\tabcolsep}{3pt}
+\caption{Journal-style queries at 10\,MB, by number of predicates $k$.}
+\label{tab:journalk}
+\input{tables/journal_metric}
+\end{table*}
+
+% NOTE(authors): the statement "outperforms ... adaptive Sampling and Hold" is taken from the authors'
+% DBDBD 2025 abstract of the journal version; check the figures and metrics of the journal article itself
+% (doi:10.1007/s00778-025-00960-6) before submission and adjust this section if they differ (issue #8).
+The authors of the journal version~\cite{omni-vldbj} report that \omni outperforms adaptive
+Sample-and-Hold (aSH)~\cite{ash}. We cannot rerun its bounded-deletion experiments within our scope, but
+its code (repository \texttt{wiegerpunter/omni-deletes}, commit \texttt{17b969e}), configuration files and
+query generator allow us to examine the insert-only case.
+
+\emph{Accounting.} The baseline keeps one entry per distinct full tuple and is charged $32p+384$ bits per
+entry: the tuple, five 64-bit fields and two pointers; a reservoir row is charged $64p+32$ bits. For $p=9$
+an aSH entry costs $2.3$ times a reservoir row of $32p$ bits; \omni is charged 31 bits per stored hash. On
+streams whose tuples are almost all distinct, aSH is a uniform sample with noisier weights, so the
+accounting alone costs it a factor $1.5$--$1.8$ in standard error. We port the baseline (adaptive
+Sample-and-Hold keyed on the full tuple, 10\% ingest buffer, batched ejection) and report it under that
+accounting and under a lean one ($32p+64$ bits per entry).
+
+\emph{Insert-only results.} Table~\ref{tab:journal} uses the stream and configuration of that code's
+insert-only setting. In normalized absolute error, aSH under the journal accounting is
+\NumJSOmniVsAshLo--\NumJSOmniVsAshHi$\times$ more accurate than \omni in the journal configuration on the
+journal-style queries (\NumJROmniVsAshLo--\NumJROmniVsAshHi$\times$ on our record-sampled queries); a
+reservoir charged $32p$ bits per row is \NumJSOmniVsResLo--\NumJSOmniVsResHi$\times$ more accurate, and
+the calibrated sample another \NumJSCalTwoVsResLo--\NumJSCalTwoVsResHi$\times$.
+
+\emph{Workload and metric.} The journal-style procedure draws, for each of 300 sampled records, one query
+for every $k=1,\dots,p$. On a stream with nine attributes most of these queries match a single record
+(Table~\ref{tab:journalk}): the mean true answer falls from about $1.5\cdot10^5$ for $k=1$ to
+\NumJKTruthHigh{} for $k\ge6$, and \NumJKShareHigh\% of the queries have five or more predicates. For such
+queries the metric decides the winner. Under Bernoulli sampling at rate $\rho$, an unbiased estimate of a
+count $f=1$ is $1/\rho$ with probability $\rho$ and $0$ otherwise, so its expected \emph{relative} error
+is $2(1-\rho)\approx2$, whereas an estimator that returns $0$ has relative error $1$. For $k\le4$, aSH
+under the journal accounting has a \NumJKAshAbsLo--\NumJKAshAbsHi$\times$ lower absolute error than \omni
+and the reservoir a \NumJKResAbsLo--\NumJKResAbsHi$\times$ lower one. For $k\ge6$ all methods are off by
+one or two records; \omni, whose intersections are empty for \NumJKOmniZeroHigh\% of these queries, has a
+mean relative error of \NumJKOmniRelHigh, aSH of \NumJKAshRelHigh{} and the reservoir of
+\NumJKResRelHigh. Averaged over the workload, the mean relative error at 10\,MB is \NumJSMreOmni{} for
+\omni, \NumJSMreAsh{} for aSH and \NumJSMreRes{} for the reservoir. A relative-error average over a
+workload dominated by near-empty conjunctions therefore ranks \omni above the sampling baseline, although
+the baseline is more accurate on every query class whose answer is large enough to be estimated. Whether
+this is the mechanism behind the published comparison we cannot tell from the code alone; what the code
+shows is that, in the insert-only setting, neither the accounting nor the algorithm of the sampling
+baseline makes it less accurate than \omni in absolute terms.
+
+\section{Additional Results}\label{app:more}
+
+\begin{table*}[t]
+\centering\footnotesize\setlength{\tabcolsep}{3.5pt}
+\caption{NAE by number of predicates $k$ at 10\,MB, record-sampled queries (mean of 5 seeds).}
+\label{tab:byk}
+\input{tables/by_k}
+\end{table*}
+
+\begin{table*}[t]
+\centering\footnotesize\setlength{\tabcolsep}{2.5pt}
+\caption{Design space at 10\,MB (mean of 5 seeds): NAE on record-sampled queries with $k\ge2$, and
+mean relative error of anchored queries whose rarest predicate occurs 10--99 and 100--999 times.}
+\label{tab:ablation}
+\input{tables/ablation}
+\end{table*}
+
+\paragraph{Setup details.} Taxi: vendor, passenger count, rate code, pick-up and drop-off zone, payment
+type, hour, weekday, and binned distance, fare, tip and duration. MAWI: 2010-01-01, samplepoint~F.
+DMV: record type, registration class, city, state, ZIP code, county, model year, make, body type, fuel type,
+registration date, colour and three indicator flags, in file order (the vehicle identification number is
+dropped). The journal-style experiment uses 9 Zipf$^\dagger$ attributes with $\alpha=1.3$ and queries
+generated as that version's code does. Hydra's sketch seeds are fixed in its code, so it has a single
+repetition. \textsc{USS+C$i$} and \textsc{Coco+C$i$} add the counter rows (and pair and triple tables)
+to USS and CocoSketch and estimate with Eq.~\pref{eq:cal}; ``\csh (C3)'' is the hold mode with pair and
+triple tables ($\phi_2=\phi_3=0.15$). The allocation exponent $\gamma$ replaces $n$ by $n^\gamma$ in
+Eq.~\pref{eq:nstar}, interpolating between equal allocation per stratum ($\gamma=1$) and uniform
+sampling ($\gamma=0$). Timings ran on one performance core (16\,GB RAM, Linux, GCC~16.2).
+
+\paragraph{Table share.} The NAE is flat in the share of the pair tables between $\phi_2=0.1$ and $0.5$
+(Table~\ref{tab:ablation}), as the analysis of Section~\pref{sec:cal} predicts; triple tables help when
+queries with three and more predicates matter.
+
+\paragraph{House weight and allocation.} Without a house stratum ($\lambda=0$) rare anchors on Taxi are
+answered almost exactly but frequent queries suffer; $\lambda=1$ gives up some of the rare-anchor gain for
+frequent-query accuracy close to that of the uniform sample; $\lambda=1/4$ is a reasonable alternative when
+rare values matter most. A sub-linear allocation exponent $\gamma<1$ without a house stratum is dominated by
+$\gamma=1$ with a house stratum. On MAWI none of these choices matters much for rare anchors.
+
+\paragraph{Number of buckets.} On Taxi, rare-anchor accuracy improves until every value owns a bucket
+($w\approx4096$) and is flat afterwards. The automatic rule (5\% of the budget for C1 counters) selects
+$w=8192$ at 10\,MB.
+
+\paragraph{Calibrating to all anchors.} Fitting the $2^k$ contingency table of a query to all available
+marginals by iterative proportional fitting lowers the error by a further 15--45\% with exact marginals in a
+prototype, but with hashed tables the marginals of collided cells enter as if they were exact, and the
+result is unreliable (rows ``all anchors'': better in some cells, markedly worse in others, in particular
+on MAWI). We therefore keep the single lightest anchor.
+
+\paragraph{Unbiasedness checks.} On a small stream (20\,000 records, 500 stored rows, so that compactions
+are frequent) and \NumProbeSeeds{} independent seeds, the HT estimate of the stream size deviates from the
+truth by $\NumProbeCs\%\pm\NumProbeCsSe\%$ for \cs and $\NumProbeCsh\%\pm\NumProbeCshSe\%$ for \csh (mean
+$\pm$ standard error); on a stream with at most 2\,500 distinct tuples and 200 entries, where held counts
+and re-anchoring dominate, \csh deviates by $\NumProbeCshRep\%\pm\NumProbeCshRepSe\%$. On the real streams
+at 1\,MB (0.5\,MB for Zipf), summed over the queries with $f(q)\ge1000$, the HT estimates of \cs deviate
+by $\NumBiasHtTotalTaxi\%\pm\NumBiasHtTotalSeTaxi\%$ (Taxi, \NumBiasSeedsTaxi{} seeds),
+$\NumBiasHtTotalMawi\%\pm\NumBiasHtTotalSeMawi\%$ (MAWI, \NumBiasSeedsMawi{} seeds) and
+$\NumBiasHtTotalZipf\%\pm\NumBiasHtTotalSeZipf\%$ (Zipf, $\alpha=1.5$), and those of \csh by
+$\NumBiasHtTotalHoldTaxi\%\pm\NumBiasHtTotalSeHoldTaxi\%$,
+$\NumBiasHtTotalHoldMawi\%\pm\NumBiasHtTotalSeHoldMawi\%$ and
+$\NumBiasHtTotalHoldZipf\%\pm\NumBiasHtTotalSeHoldZipf\%$. A record's priority depends only on the seed and
+the record identifier, so the seed ranges of the three streams are disjoint. The calibrated estimator, a
+ratio estimator, deviates by $\NumBiasCalTotalTaxi\%\pm\NumBiasCalTotalSeTaxi\%$ on Taxi.
+These checks are consistent with Theorems~\pref{thm:unbiased} and~\pref{thm:hold}.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}

@@ -81,20 +81,39 @@ struct Dataset {
 };
 
 // ---------------------------------------------------------------- queries
-// Conjunction of equality predicates: attrs[i] == vals[i].
+// Conjunction of predicates on distinct attributes. Equality predicates: attrs[i] == vals[i].
+// Range queries (workload kinds >= 4) carry an upper end per predicate in `hi`, and predicate i
+// is vals[i] <= r[attrs[i]] <= hi[i]; an equality predicate then has hi[i] == vals[i].
 struct Query {
-    std::vector<uint32_t> attrs, vals;
+    std::vector<uint32_t> attrs, vals, hi;
     uint64_t truth = 0;
     uint64_t minfreq = 0; // frequency of the rarest single predicate
     int kind = 0; // workload family
+    bool has_range() const { return !hi.empty(); }
+    bool is_eq(size_t i) const { return hi.empty() || hi[i] == vals[i]; }
     bool matches(const uint32_t* rec) const {
-        for (size_t i = 0; i < attrs.size(); i++)
-            if (rec[attrs[i]] != vals[i]) return false;
+        if (hi.empty()) {
+            for (size_t i = 0; i < attrs.size(); i++)
+                if (rec[attrs[i]] != vals[i]) return false;
+            return true;
+        }
+        for (size_t i = 0; i < attrs.size(); i++) {
+            uint32_t x = rec[attrs[i]];
+            if (x < vals[i] || x > hi[i]) return false;
+        }
         return true;
+    }
+    // the equality predicates of a range query, as an equality query (for counter anchors)
+    Query eq_part() const {
+        Query e;
+        for (size_t i = 0; i < attrs.size(); i++)
+            if (is_eq(i)) e.attrs.push_back(attrs[i]), e.vals.push_back(vals[i]);
+        return e;
     }
 };
 
 // Text format, one query per line: kind npred truth minfreq a1 v1 a2 v2 ...
+// For kinds >= 4 (range workloads) every predicate is a triple a lo hi.
 static inline bool load_workload(const std::string& path, std::vector<Query>& qs) {
     FILE* f = fopen(path.c_str(), "r");
     if (!f) return false;
@@ -106,15 +125,33 @@ static inline bool load_workload(const std::string& path, std::vector<Query>& qs
         q.truth = truth;
         q.minfreq = minfreq;
         for (int i = 0; i < np; i++) {
-            unsigned a, v;
+            unsigned a, v, h;
             if (fscanf(f, "%u %u", &a, &v) != 2) { fclose(f); return false; }
             q.attrs.push_back(a);
             q.vals.push_back(v);
+            if (kind >= 4) {
+                if (fscanf(f, "%u", &h) != 1) { fclose(f); return false; }
+                q.hi.push_back(h);
+            }
         }
         qs.push_back(std::move(q));
     }
     fclose(f);
     return true;
+}
+
+// Canonical dyadic cover of [lo, hi]: pairs (level l, index x) such that the intervals
+// [x 2^l, (x+1) 2^l - 1] are disjoint and their union is [lo, hi]; at most 2 log2(hi-lo+2) pieces.
+static inline void dyadic_cover(uint64_t lo, uint64_t hi, std::vector<std::pair<uint32_t, uint64_t>>& out) {
+    out.clear();
+    while (lo <= hi) {
+        uint32_t l = 0;
+        // largest aligned block starting at lo that fits in [lo, hi]
+        while (l < 63 && (lo & ((2ull << l) - 1)) == 0 && lo + (2ull << l) - 1 <= hi) l++;
+        out.push_back({l, lo >> l});
+        lo += 1ull << l;
+        if (lo == 0) break; // overflow guard
+    }
 }
 
 static inline double now_sec() {

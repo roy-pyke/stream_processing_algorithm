@@ -12,7 +12,12 @@ work/
 
 # raw per-run experiment logs (large; aggregated CSVs are tracked)
 results/acc/
+results/acc2/
 results/acc3/
+results/range/
+results/merge/
+results/pairs/
+results/logs/
 results/abl/
 results/census/
 results/journal/
@@ -31,3 +36,12 @@ ext/
 *.pdf
 !paper/figs/*.pdf
 results/census_cap/
+results/old_partial/
+# LaTeX build products (scripts/build_paper.sh)
+paper/*.aux
+paper/*.log
+paper/*.bbl
+paper/*.blg
+paper/*.out
+paper/*.fls
+paper/*.fdb_latexmk
