@@ -39,11 +39,12 @@
 //                  information on a stream prefix, the anchor reduction on a prefix (see
 //                  select_pairs), or at random; the pair tables then use their budget fraction
 //                  with m tables instead of C(p,2)
-// Output columns of "acc": name,spec,mem,seed,query,est,ht,sd,cm[,m,wmax]. For OmniSketch specs
+// Output columns of "acc": name,spec,mem,seed,query,est,ht,sd,cm[,m,wmax,wa,va,wanc]. For OmniSketch specs
 // the last three hold: the Theorem 3.3 estimate (bound when the intersection is small), |S_cap|,
 // n_max; for omnij "est" is the Theorem 3.3 estimate and "ht" the always-scaled one. CoStrata and
-// CoStrata-H add the number of matching rows (held count) and the largest calibrated weight a
-// matching record can have, used for the small-count confidence intervals.
+// CoStrata-H add the number of matching rows (held count), 1 / pi_q (the largest weight a matching
+// record can have), and for the anchor cell its sample weight W_a, its variance mass V_a and the
+// largest weight any of its records can have; used for the confidence intervals.
 // "acc" appends one line per (method, query) to out.csv and prints a RUN line. "merge" splits the
 // stream into <parts> contiguous pieces, builds one synopsis per piece (same seed, the full budget
 // each), merges them in order and answers the workload from the merged synopsis (cs, omni:w:d).
@@ -331,12 +332,13 @@ static CoStrataH* make_csh(const Spec& sp, const Dataset& d, uint64_t bits, uint
 }
 
 struct Out { // per-query outputs of one method
-    std::vector<double> est, ht, sd, cm, m, wmax;
+    std::vector<double> est, ht, sd, cm, m, wmax, wa, va, wanc;
     void init(size_t n, bool full, bool diag) {
         est.assign(n, 0);
         if (full) ht.assign(n, 0), sd.assign(n, 0), cm.assign(n, 0);
-        if (diag) m.assign(n, 0), wmax.assign(n, 0);
+        if (diag) m.assign(n, 0), wmax.assign(n, 0), wa.assign(n, 0), va.assign(n, 0), wanc.assign(n, 0);
     }
+    template <class E> void diag(size_t i, const E& e) { m[i] = e.m; wmax[i] = e.wmax; wa[i] = e.wa; va[i] = e.va; wanc[i] = e.wanc; }
 };
 
 int main(int argc, char** argv) {
@@ -395,7 +397,7 @@ int main(int argc, char** argv) {
                     double t0 = now_sec();
                     for (size_t i = 0; i < qs.size(); i++) {
                         CoStrata::Est e = acc->estimate(qs[i]);
-                        o.est[i] = e.hajek; o.ht[i] = e.ht; o.sd[i] = e.sd_hajek; o.cm[i] = e.cm; o.m[i] = e.m; o.wmax[i] = e.wmax;
+                        o.est[i] = e.hajek; o.ht[i] = e.ht; o.sd[i] = e.sd_hajek; o.cm[i] = e.cm; o.diag(i, e);
                     }
                     t_q = now_sec() - t0;
                     used_bits = acc->mem_bits();
@@ -532,7 +534,7 @@ int main(int argc, char** argv) {
                 double t0 = now_sec();
                 for (size_t i = 0; i < qs.size(); i++) {
                     CoStrataH::Est e = s->estimate(qs[i]);
-                    o.est[i] = e.hajek; o.ht[i] = e.ht; o.sd[i] = e.sd_hajek; o.cm[i] = e.cm; o.m[i] = e.m; o.wmax[i] = e.wmax;
+                    o.est[i] = e.hajek; o.ht[i] = e.ht; o.sd[i] = e.sd_hajek; o.cm[i] = e.cm; o.diag(i, e);
                 }
                 t_q = now_sec() - t0;
                 used_bits = s->mem_bits();
@@ -554,7 +556,7 @@ int main(int argc, char** argv) {
                 for (size_t i = 0; i < qs.size(); i++) {
                     CoStrata::Est e = s->estimate(qs[i]);
                     o.est[i] = rake ? s->estimate_rake(qs[i]) : e.hajek;
-                    o.ht[i] = e.ht; o.sd[i] = e.sd_hajek; o.cm[i] = e.cm; o.m[i] = e.m; o.wmax[i] = e.wmax;
+                    o.ht[i] = e.ht; o.sd[i] = e.sd_hajek; o.cm[i] = e.cm; o.diag(i, e);
                 }
                 t_q = now_sec() - t0;
                 used_bits = s->mem_bits() + (ixo >= 2 ? s->index_bits() : 0);
@@ -573,8 +575,9 @@ int main(int argc, char** argv) {
                     fprintf(out, "%s,%s,%g,%llu,%zu,%.12g,%.12g,%.12g,%.12g\n", name.c_str(), sp.raw.c_str(), mem_mb, (unsigned long long)seed, i,
                             o.est[i], o.ht[i], o.sd[i], o.cm[i]);
                 else
-                    fprintf(out, "%s,%s,%g,%llu,%zu,%.12g,%.12g,%.12g,%.12g,%.12g,%.12g\n", name.c_str(), sp.raw.c_str(), mem_mb,
-                            (unsigned long long)seed, i, o.est[i], o.ht[i], o.sd[i], o.cm[i], o.m[i], o.wmax[i]);
+                    fprintf(out, "%s,%s,%g,%llu,%zu,%.12g,%.12g,%.12g,%.12g,%.12g,%.12g,%.12g,%.12g,%.12g\n", name.c_str(), sp.raw.c_str(),
+                            mem_mb, (unsigned long long)seed, i, o.est[i], o.ht[i], o.sd[i], o.cm[i], o.m[i], o.wmax[i], o.wa[i], o.va[i],
+                            o.wanc[i]);
             }
             printf("RUN,%s,%s,%g,%llu,%u,%llu,%.3f,%.2f,%.2f,%.3f,%s\n", name.c_str(), sp.raw.c_str(), mem_mb,
                    (unsigned long long)seed, d.p, (unsigned long long)d.n, t_ing, t_ing / (double)d.n * 1e9,

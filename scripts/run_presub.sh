@@ -8,6 +8,8 @@
 #   merge  (#22) synopses built on 2..16 parts of the stream and merged
 #   pairs  (#20) pair-table selection on Census, p = 16/32/68, random and template workloads
 #   dmv    the configurations of "main" that are new (CocoSketch, index charged) on DMV: 3 budgets, 3 seeds
+#   ci     (#18) the methods of the coverage table again, with the anchor columns that the
+#          two-sided intervals need (estimates identical to results/acc)
 #   timing update throughput of the new configurations (sequential, one job; run on an idle machine)
 set -u
 cd "$(dirname "$0")/.."
@@ -79,6 +81,12 @@ if [ "$PART" = dmv ] || [ "$PART" = all ]; then
   M="coco cococ cococ:0:0.25 cs/ix=2 cs:0:1:1:0.25/ix=2 cs:0:1e9:1:0.25/ix=2"
   for mem in 1 10 50; do for seed in 1 2 3; do
     echo "dmv dmv work/dmv.wl $mem $seed $M"; done; done | run_jobs results/acc2
+fi
+
+if [ "$PART" = ci ] || [ "$PART" = all ]; then
+  M="cs cs:0:1:1:0.25 cs:0:1e9:1:0.25 csh:0:1:0.25"
+  for mem in $MEMS; do for ds in $DATASETS; do for seed in 1 2 3 4 5; do
+    echo "$ds $ds work/$ds.wl $mem $seed $M"; done; done; done | run_jobs results/ci
 fi
 
 if [ "$PART" = timing ]; then   # not part of "all": needs an otherwise idle machine

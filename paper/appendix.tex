@@ -211,7 +211,7 @@ violates, it collides with the query value in all $d$ rows, which has probabilit
 predicate, independently. For a two-predicate query on values with marginal frequencies $f_1,f_2$,
 $N_1=f_1+f_2-2f(q)$.
 
-\subsection{Small-count intervals}
+\subsection{Intervals}\label{app:ci}
 
 Under Poisson sampling at fixed thresholds every matching record $r$ is retained with probability
 $\pi_r\ge\pi_q$ (Section~\pref{sec:ci}), so $\Pr[m=0]=\prod_{r\in q}(1-\pi_r)\le e^{-\pi_qf}$. If
@@ -223,6 +223,25 @@ $w_M$: the lower limit is the $\alpha/2$ quantile of a gamma distribution with m
 the upper limit the $1-\alpha/2$ quantile of one with mean $y+w_M$ and variance $v+w_M^2$. We use
 $w_M=(n_{c^\star}/W_{c^\star})/\pi_q$, the calibrated weight of one more matching record at the smallest
 rate, and truncate to the hard bounds $[m,n_{c^\star}]$.
+
+The gamma approximation is designed for the rare side of a count: its lower limit rests on the
+variance estimate, which is unreliable when the estimate is formed by few records. For the calibrated
+estimator the failure also occurs at the other end. If every sampled row of the anchor cell matches,
+$\hat f_{\mathrm C}=n_{c^\star}$ and the linearised variance
+$(n_{c^\star}/W_{c^\star})^2\bigl[(1-\hat R)^2A+\hat R^2(V_{c^\star}-A)\bigr]$ (with $A$ the variance mass of
+the matching rows and $V_{c^\star}$ that of the cell) vanishes, so the interval collapses to the anchor
+count. Since $\hat f_{\mathrm C}=n_{c^\star}\hat W_q/W_{c^\star}$, the non-matching rows of the cell give
+$\hat g=n_{c^\star}-\hat f_{\mathrm C}=n_{c^\star}(W_{c^\star}-\hat W_q)/W_{c^\star}$, an estimate of the
+number $g=n_{c^\star}-f$ of non-matching records with the same linearised variance and the same
+structure. Every record $r$ of the anchor cell has $\nstar_r\le n_a$, where $n_a$ is the count of the C1
+bucket for a C1 anchor (all records of the cell share it) and, for any other anchor, $n_a=\min(G,n_{\max})$
+with $n_{\max}=\min_a\max_b C_1[a][b]$, because the smallest C1 count of a record is at most the largest
+count of every attribute. Hence each non-matching record is retained with probability at least
+$\pi_a=\min(1,B/n_a)$, and the argument for $m=0$ gives: if no sampled row of the cell fails the query,
+$g\le\ln(1/\alpha)/\pi_a$ errs with probability at most $\alpha$. In general we apply the construction to
+the smaller of $\hat f_{\mathrm C}$ and $\hat g$ and map an interval for $g$ to one for $f$ by $f=n_{c^\star}-g$.
+At fixed thresholds the rule-of-three parts are exact bounds; the gamma parts and the data-dependent
+threshold of budget control make the procedure approximate, which Section~\pref{sec:cires} evaluates.
 
 \section{Validation against the Authors' Code}\label{app:validation}
 

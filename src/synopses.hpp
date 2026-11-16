@@ -1148,6 +1148,10 @@ struct CoStrata {
         // wmax = 1 / pi_q, where pi_q is the smallest inclusion probability that any matching record
         // can have (from the lightest C1 cell of the query); the calibration factor is hajek / ht
         double m = 0, wmax = 0;
+        // the anchor cell: sample weight W_a and variance mass V_a of its stored rows, and
+        // wanc = 1 / pi_a, where pi_a is the smallest inclusion probability that any record of the
+        // anchor cell can have (that of its C1 bucket for a C1 anchor; otherwise the global floor)
+        double wa = 0, va = 0, wanc = 0;
     };
     inline bool row_matches(const Query& q, uint64_t s) const {
         for (size_t i = 0; i < q.attrs.size(); i++) {
@@ -1288,6 +1292,14 @@ struct CoStrata {
         if (lf > 0 && G < nsq) nsq = G;
         double piq = std::min(1.0, Bcur / nsq);
         e.wmax = 1.0 / piq;
+        e.wa = Wa;
+        e.va = Va;
+        if (best != SIZE_MAX && nb == n1 && Wa == Wb[best]) e.wanc = e.wmax; // the C1 bucket is the anchor
+        else {
+            double nsf = sfun((double)nmax_c1); // no record has a larger n*: the floor of all inclusion probabilities
+            if (lf > 0 && G < nsf) nsf = G;
+            e.wanc = 1.0 / std::min(1.0, Bcur / nsf);
+        }
         if (Wa > 0) {
             double R = num / Wa;
             double scale = (double)nb / Wa;
@@ -1528,7 +1540,17 @@ struct CoStrataH {
     struct Est {
         double hajek, ht, sd_hajek, cm;
         double m = 0, wmax = 0; // held count of the matching entries (a lower bound); see CoStrata::Est
+        double wa = 0, va = 0, wanc = 0;
     };
+    uint32_t nmax_c1() const { // min over attributes of the largest C1 count
+        uint32_t r = UINT32_MAX;
+        for (uint32_t a = 0; a < p; a++) {
+            uint32_t mx = 0;
+            for (uint32_t b = 0; b < w; b++) mx = std::max(mx, cnt[(size_t)a * w + b]);
+            r = std::min(r, mx);
+        }
+        return r;
+    }
     Est estimate(const Query& q) const {
         double num = 0, A = 0, held = 0;
         for (uint64_t s = 0; s < size; s++) {
@@ -1562,6 +1584,14 @@ struct CoStrataH {
         if (lf > 0 && G < nsq) nsq = G;
         double tq = std::min(1.0, Bcur / nsq);
         e.wmax = 1.0 / tq;
+        e.wa = Wa;
+        e.va = Va;
+        if (best != SIZE_MAX && nb == n1 && Wa == Wb[best]) e.wanc = e.wmax;
+        else {
+            double nsf = (double)nmax_c1();
+            if (lf > 0 && G < nsf) nsf = G;
+            e.wanc = 1.0 / std::min(1.0, Bcur / nsf);
+        }
         if (Wa > 0) {
             double R = num / Wa;
             double scale = (double)nb / Wa;

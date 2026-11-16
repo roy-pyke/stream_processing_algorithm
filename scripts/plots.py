@@ -784,26 +784,27 @@ if CS2 + IX in P.columns:
     put("OmniAnyVsIndexed", rr, 1)
 
 # ---------------------------------------------------------------- small-count confidence intervals
-if os.path.exists("results/agg_acc2.csv"):
-    c2 = pd.read_csv("results/agg_acc2.csv")
+if os.path.exists("results/agg_ci.csv"):   # scripts/run_presub.sh ci: runs with the anchor columns
+    c2 = pd.read_csv("results/agg_ci.csv")
     c2 = c2[c2.method.isin([CS1, CS2, RSC1, RSC2, CSH]) & c2.ci95.notna()]
     cvm = c2.groupby(["method", "mem", "dataset"], as_index=False)[["cov95", "cov95_small", "cov95_big", "ci95", "ci95_small",
-                                                                     "ci95_big", "ci95_zero", "frac_zero", "ci_relwidth"]].mean()
+                                                                     "ci95_big", "ci95_zero", "ci95_f", "ci95_f_big", "frac_zero",
+                                                                     "ci_relwidth", "ci_relwidth_f"]].mean()
     cva = cvm.groupby(["method", "mem"], as_index=False).mean(numeric_only=True)   # mean over the streams
     with open("paper/tables/coverage.tex", "w") as f:
         f.write("\\begin{tabular}{llrrrrrrr}\n\\toprule\n")
-        f.write(" & & \\multicolumn{3}{c}{normal approx.} & \\multicolumn{4}{c}{rule of three / gamma} \\\\\n")
-        f.write("\\cmidrule(lr){3-5}\\cmidrule(lr){6-9}\n")
-        f.write("Method & MB & all & $f{<}100$ & $f{\\ge}100$ & all & $f{<}100$ & $f{\\ge}100$ & $m{=}0$ \\\\\n\\midrule\n")
+        f.write(" & & \\multicolumn{2}{c}{normal} & \\multicolumn{1}{c}{matches} & \\multicolumn{4}{c}{rarer side (Sec.~\\ref{sec:ci})} \\\\\n")
+        f.write("\\cmidrule(lr){3-4}\\cmidrule(lr){5-5}\\cmidrule(lr){6-9}\n")
+        f.write("Method & MB & $f{<}100$ & $f{\\ge}100$ & $f{\\ge}100$ & all & $f{<}100$ & $f{\\ge}100$ & $m{=}0$ \\\\\n\\midrule\n")
         for key, lab in [(CS2, "\\cs"), (RSC2, "RS+C2"), (CSH, "\\csh")]:
-            for i, x in enumerate([0.5, 1.0, 10.0, 50.0]):
+            for i, x in enumerate([1.0, 10.0, 50.0]):
                 s = cva[(cva.method == key) & (cva.mem == x)]
                 if not len(s):
                     continue
                 s = s.iloc[0]
                 pc = lambda v: f"{100 * v:.0f}" if np.isfinite(v) else "--"
                 f.write((lab if i == 0 else "") + f" & {x:g} & " + " & ".join(pc(s[c]) for c in
-                        ["cov95", "cov95_small", "cov95_big", "ci95", "ci95_small", "ci95_big", "ci95_zero"]) + " \\\\\n")
+                        ["cov95_small", "cov95_big", "ci95_f_big", "ci95", "ci95_small", "ci95_big", "ci95_zero"]) + " \\\\\n")
             if key != CSH:
                 f.write("\\addlinespace[2pt]\n")
         f.write("\\bottomrule\n\\end{tabular}\n")
@@ -818,6 +819,10 @@ if os.path.exists("results/agg_acc2.csv"):
     NUM["CiNewZeroLo"] = f"{100 * main3.ci95_zero.min():.0f}"
     NUM["CiFracZeroOneMb"] = f"{100 * cva[(cva.method == CS2) & (cva.mem == 1.0)].frac_zero.iloc[0]:.0f}"
     NUM["CiWidthTen"] = f"{cva[(cva.method == CS2) & (cva.mem == 10.0)].ci_relwidth.iloc[0]:.2f}"
+    NUM["CiOneSidedBigLo"] = f"{100 * main3.ci95_f_big.min():.0f}"
+    ws = main3.loc[main3.ci95_f_big.idxmin()]
+    NUM["CiOneSidedBigWorst"] = DS_LABEL.get(ws.dataset, ws.dataset)
+    NUM["CiWidthGain"] = f"{100 * ((main3.ci_relwidth / main3.ci_relwidth_f).median() - 1):.0f}"
     worst = main3.loc[main3.ci95.idxmin()]
     NUM["CiNewWorstStream"] = DS_LABEL.get(worst.dataset, worst.dataset)
     NUM["CiNewWorstMem"] = f"{worst.mem:g}"

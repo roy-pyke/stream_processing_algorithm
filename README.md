@@ -97,6 +97,7 @@ python scripts/aggregate.py results/journal results/agg_journal.csv work
 python scripts/aggregate.py results/abl     results/agg_abl.csv     work
 python scripts/aggregate.py results/census  results/agg_census.csv  work
 python scripts/aggregate.py results/acc2    results/agg_acc2.csv    work   # needs scipy (small-count intervals)
+python scripts/aggregate.py results/ci      results/agg_ci.csv      work   # needs scipy (coverage table)
 python scripts/aggregate.py results/range   results/agg_range.csv   work
 python scripts/aggregate.py results/merge   results/agg_merge.csv   work
 python scripts/aggregate.py results/pairs   results/agg_pairs.csv   work

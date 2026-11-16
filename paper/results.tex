@@ -123,10 +123,11 @@ to a few thousand values.
 \subsection{Confidence intervals}\label{sec:cires}
 
 \begin{table}[t]
-\centering\small\setlength{\tabcolsep}{3.5pt}
+\centering\small\setlength{\tabcolsep}{2.6pt}
 \caption{Coverage (\%) of nominal 95\% intervals, mean over the six streams of
 Figure~\ref{fig:nae} (record-sampled and anchored queries, 5 seeds). Normal: $\hat f_{\mathrm C}\pm1.96
-\sqrt{\hat V_{\mathrm C}}$. New: Section~\ref{sec:ci}; $m{=}0$: queries without a sampled match.}
+\sqrt{\hat V_{\mathrm C}}$. Matches: rule of three and gamma interval on the matches only. Rarer side:
+Section~\ref{sec:ci}; $m{=}0$: queries without a sampled match.}
 \label{tab:cov}
 \input{tables/coverage}
 \end{table}
@@ -134,13 +135,15 @@ Figure~\ref{fig:nae} (record-sampled and anchored queries, 5 seeds). Normal: $\h
 Table~\ref{tab:cov} compares the intervals of Section~\ref{sec:ci} with normal intervals. At 1\,MB,
 \NumCiFracZeroOneMb\% of the queries have no sampled match, and normal intervals cover only
 \NumCiNormSmallOneMb\% of the answers below 100 (\NumCiNormAllOneMb\% of all answers); even at 50\,MB they
-cover at most \NumCiNormSmallHi\% of small answers on any stream. The rule-of-three bound covers
-\NumCiNewZeroLo\% or more of the queries without a match on every stream and budget, and the gamma interval
-brings the coverage of answers below 100 to at least \NumCiNewSmallLo\%. The overall coverage of the new
-intervals is \NumCiNewLo--\NumCiNewHi\% per stream and budget. The remaining shortfall concerns large
-counts on the most skewed streams (down to \NumCiNewBigLo\% for $f\ge100$ on Zipf with $\alpha=1.5$ and
-on MAWI), where the linearised variance of the ratio estimator is too small; the intervals for
-\textsc{RS+C2} and \csh behave the same way.
+cover at most \NumCiNormSmallHi\% of small answers on any stream. The rule of three covers
+\NumCiNewZeroLo\% or more of the queries without a match. Building the interval on the matches alone
+(column ``matches'') leaves large counts undercovered, down to \NumCiOneSidedBigLo\% on \NumCiOneSidedBigWorst:
+when every sampled row of the anchor cell matches, the linearised variance is zero and the interval
+collapses to the anchor count. Switching to the non-matching part when it is the rarer one removes the
+shortfall at a median cost of \NumCiWidthGain\% in width: coverage is
+\NumCiNewLo--\NumCiNewHi\% per stream and budget, at least \NumCiNewSmallLo\% for answers below 100 and
+\NumCiNewBigLo\% for the others. The intervals are conservative, as rules of three and the extra weight
+of the gamma upper limit are designed to be, and \textsc{RS+C2} and \csh behave like \cs.
 
 \subsection{Range predicates}\label{sec:rangeres}
 

@@ -44,9 +44,9 @@ $\epsilon\,n_{c^\star}$---relative to the anchor cell instead of the stream---on
 $O(\epsilon^{-2}\log\delta^{-1})$ sampled rows; with pair tables the variance of a two-predicate count is
 bounded independently of the answer. The same counters drive \cs, a coordinated hash-stratified row sampler
 under a hard memory budget, and its sample-and-hold variant \csh, both of which we prove unbiased under
-budget control. Confidence intervals built from the retention probability of the lightest cell raise
-the coverage of small counts from at most \NumCiNormSmallHi\% (normal intervals) to at least
-\NumCiNewSmallLo\%. The design
+budget control. Confidence intervals built from retention-probability floors cover at least
+\NumCiNewLo\% of the answers on every stream and budget, where normal intervals cover at most
+\NumCiNormSmallHi\% of the small counts. The design
 extends to range predicates through dyadic counters, merges across partitions, and scales to wide
 streams by selecting pair tables. On six streams, calibrated row samples are
 \NumOmniAnyVsBestRowLo--\NumOmniAnyVsBestRowHi$\times$ more accurate than the best of
@@ -155,7 +155,7 @@ keeps a row if any of its strata would keep it, under a one-parameter hard budge
 budget control, loses at most a factor $\sqrt2$ in standard error against uniform sampling, and is exact
 for conjunctions with a rare value. Its sample-and-hold variant \csh counts repeated tuples exactly once
 sampled; we prove that it, too, is unbiased under budget control (Theorem~\ref{thm:hold}).
-\item \textbf{Extensions (Section~\ref{sec:ext}).} Confidence intervals for small counts from the retention probability of the lightest cell; range predicates through dyadic
+\item \textbf{Extensions (Section~\ref{sec:ext}).} Confidence intervals that stay valid for small counts and for answers close to the anchor count; range predicates through dyadic
 counters; merging of synopses built on partitions of the stream; selection of pair tables for wide streams.
 \item \textbf{Sketch-in-sketch through the lens of sampling (Section~\ref{sec:anatomy}).} The intersection
 of \omni's per-cell samples is a uniform sample at the rate of the \emph{heaviest} cell a query touches,
@@ -479,19 +479,21 @@ Details are in \apx{app:proofs}.
 
 \subsection{Extensions}\label{sec:ext}
 
-\paragraph{Small-count intervals.}\label{sec:ci} Normal intervals $\hat f_{\mathrm C}\pm1.96\sqrt{\hat
-V_{\mathrm C}}$ fail for rare queries: a query without a sampled match receives the interval $[0,0]$. Two hard bounds are available for free: the number $m$ of
-matching sampled rows (held counts for \csh) is a lower bound on $f$, and the anchor count $n_{c^\star}$ an
-upper bound. Every matching record $r$ satisfies $\nstar_r\le\min(G,n_q)$ (Proposition~\ref{prop:rare}),
-so it is retained with probability at least $\pi_q=\min\bigl(1,B/\min(G,n_q)\bigr)$, and under Poisson
-sampling $\Pr[m=0]\le(1-\pi_q)^f\le e^{-\pi_qf}$. If $m=0$ we therefore report
-\[
-  \bigl[\,0,\ \min\bigl(n_{c^\star},\ \ln(1/\alpha)/\pi_q\bigr)\bigr],
-\]
-a rule of three~\cite{ruleofthree} at the retention probability of the lightest bucket. If $m\ge1$ we use the gamma interval of Fay and Feuer~\cite{fayfeuer} for weighted sums of
-counts around $\hat f_{\mathrm C}$, with variance $\hat V_{\mathrm C}$ and, as the weight of one further
-matching record, the calibrated weight $(n_{c^\star}/W_{c^\star})/\pi_q$; the interval is truncated to
-$[m,n_{c^\star}]$. Section~\ref{sec:cires} shows that this brings small counts close to nominal coverage.
+\paragraph{Intervals.}\label{sec:ci} Normal intervals $\hat f_{\mathrm C}\pm1.96\sqrt{\hat V_{\mathrm C}}$
+fail at both ends of the anchor cell: a query without a sampled match receives $[0,0]$, one matched by
+every sampled row of its anchor $[n_{c^\star},n_{c^\star}]$. The number $m$ of matching sampled rows (held
+counts for \csh) and the anchor count are hard bounds, $m\le f\le n_{c^\star}$. Every matching record $r$
+has $\nstar_r\le\min(G,n_q)$ (Proposition~\ref{prop:rare}), so it is retained with probability at least
+$\pi_q=\min\bigl(1,B/\min(G,n_q)\bigr)$, and under Poisson sampling $\Pr[m=0]\le e^{-\pi_qf}$. If $m=0$ we
+report $\bigl[0,\min\bigl(n_{c^\star},\ln(1/\alpha)/\pi_q\bigr)\bigr]$, a rule of three~\cite{ruleofthree}.
+Otherwise we use that the calibrated estimate splits the anchor cell exactly, $\hat f_{\mathrm C}+\hat
+g=n_{c^\star}$, where $\hat g$ estimates the number $g$ of its non-matching records, and work on the rarer
+part. If $\hat f_{\mathrm C}\le n_{c^\star}/2$, we take the gamma interval of Fay and
+Feuer~\cite{fayfeuer} around $\hat f_{\mathrm C}$ with variance $\hat V_{\mathrm C}$ and the calibrated
+weight $(n_{c^\star}/W_{c^\star})/\pi_q$ of one further match. Otherwise we apply the same construction to
+$g$, with $\pi_q$ replaced by the smallest retention probability $\pi_a$ of a record of the anchor
+(\apx{app:ci}), and report $n_{c^\star}$ minus its interval; if no sampled row of the anchor fails the
+query, this is the rule of three $g\le\ln(1/\alpha)/\pi_a$. We truncate to $[m,n_{c^\star}]$.
 
 \paragraph{Range predicates.}\label{sec:range} A row sample evaluates any predicate on its rows, but the
 calibration needs an anchor. For a range predicate $\ell\le r_a\le u$ we keep, for each attribute that
@@ -725,7 +727,7 @@ low-order marginals and rows for everything else is a simple and effective desig
 scale of an answer to within the anchor cell, the sample supplies the composition of that cell, and the
 same counters shape the sample so that rare values are protected. The estimator comes with bias and tail
 bounds relative to the anchor; the samplers are unbiased under a hard budget; and the design extends to
-small-count intervals, ranges, merging and wide streams. Measured against the sketch-in-sketch design of
+confidence intervals, ranges, merging and wide streams. Measured against the sketch-in-sketch design of
 \omni, with the authors' implementation in the loop, calibrated row samples are more accurate at equal
 memory on every non-uniform stream, and the reason is structural: per-cell samples can only be combined by
 intersection, which yields the rate of the heaviest stratum. Composite sketches whose cells contain samples
