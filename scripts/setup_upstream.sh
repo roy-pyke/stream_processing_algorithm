@@ -14,7 +14,7 @@ if [ ! -d ext/upstream/.git ]; then
 fi
 git -C "$ROOT/ext/upstream" checkout --quiet "$UPSTREAM_COMMIT"
 
-local_javac=$(find ext/jdk -name javac -type f 2>/dev/null | head -1)
+local_javac=$( (find ext/jdk -name javac -type f 2>/dev/null || true) | head -1)   # ext/jdk may not exist
 if [ -n "$local_javac" ]; then
   JAVA_HOME_LOCAL=$ROOT/$(dirname "$(dirname "$local_javac")")
 elif javac -version >/dev/null 2>&1; then   # (on macOS /usr/bin/javac may be a stub that fails)
