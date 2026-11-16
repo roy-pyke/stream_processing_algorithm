@@ -1,4 +1,10 @@
-\documentclass[sigconf,review,anonymous]{acmart}
+% Submission version by default. `scripts/build_paper.sh camera` builds the camera-ready version
+% (\cameraready defined): no review mode, the authors of authors.tex and the acknowledgments of acks.tex (#9).
+\ifdefined\cameraready
+  \documentclass[sigconf]{acmart}
+\else
+  \documentclass[sigconf,review,anonymous]{acmart}
+\fi
 % SIGMOD research track (all SIGMOD 2027 rounds closed on 2026-10-17; target: SIGMOD 2028, round 1).
 % 2-column ACM proceedings format (sigconf, latest acmart), double-anonymous review, 12 pages excluding
 % references; the appendix is a separate PDF (appendix.tex), read only if reviewers choose to.
@@ -30,8 +36,12 @@
 
 \title{Counters for Marginals, Rows for the Rest: Calibrated Row Sampling for Ad-hoc Predicate Counting on Streams}
 
-\author{Anonymous Author(s)}
-\affiliation{\institution{Submission to SIGMOD 2028}\country{}}
+\ifdefined\cameraready
+  \input{authors}
+\else
+  \author{Anonymous Author(s)}
+  \affiliation{\institution{Submission to SIGMOD 2028}\country{}}
+\fi
 
 \begin{abstract}
 Counting the records of a multi-attribute stream that satisfy a conjunction of predicates chosen at
@@ -731,6 +741,8 @@ structural reason: per-cell samples can only be combined by intersection, which 
 heaviest stratum. Composite sketches whose cells hold samples should be evaluated against the
 corresponding global sampling design under a shared memory accounting. An anonymised repository with all
 code and the scripts for every figure, table and number will be made available to the reviewers.
+
+\ifdefined\cameraready\input{acks}\fi
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{references}
