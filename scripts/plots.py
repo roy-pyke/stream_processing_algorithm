@@ -831,16 +831,19 @@ if os.path.exists("results/agg_ci.csv"):   # scripts/run_presub.sh ci: runs with
         f.write("\\bottomrule\n\\end{tabular}\n")
     note("interval coverage by stream", cvm)
     main3 = cvm[cvm.method.isin([CS2, RSC2, CSH])]
-    NUM["CiNormSmallHi"] = f"{100 * main3.cov95_small.max():.0f}"
     NUM["CiNormSmallOneMb"] = f"{100 * cva[(cva.method == CS2) & (cva.mem == 1.0)].cov95_small.iloc[0]:.0f}"
     NUM["CiNormAllOneMb"] = f"{100 * cva[(cva.method == CS2) & (cva.mem == 1.0)].cov95.iloc[0]:.0f}"
-    NUM["CiNewLo"], NUM["CiNewHi"] = f"{100 * main3.ci95.min():.0f}", f"{100 * main3.ci95.max():.0f}"
-    NUM["CiNewSmallLo"] = f"{100 * main3.ci95_small.min():.0f}"
-    NUM["CiNewBigLo"], NUM["CiNewBigHi"] = f"{100 * main3.ci95_big.min():.0f}", f"{100 * main3.ci95_big.max():.0f}"
-    NUM["CiNewZeroLo"] = f"{100 * main3.ci95_zero.min():.0f}"
+    # coverage bounds in the text: lower bounds rounded down, upper bounds rounded up (one decimal; 100 stays 100)
+    lo1 = lambda v: f"{np.floor(1000 * v + 1e-9) / 10:.1f}"
+    hi1 = lambda v: "100" if v >= 1 - 1e-12 else f"{np.ceil(1000 * v - 1e-9) / 10:.1f}"
+    NUM["CiNormSmallHi"] = hi1(main3.cov95_small.max())
+    NUM["CiNewLo"], NUM["CiNewHi"] = lo1(main3.ci95.min()), hi1(main3.ci95.max())
+    NUM["CiNewSmallLo"] = lo1(main3.ci95_small.min())
+    NUM["CiNewBigLo"], NUM["CiNewBigHi"] = lo1(main3.ci95_big.min()), hi1(main3.ci95_big.max())
+    NUM["CiNewZeroLo"] = lo1(main3.ci95_zero.min())
     NUM["CiFracZeroOneMb"] = f"{100 * cva[(cva.method == CS2) & (cva.mem == 1.0)].frac_zero.iloc[0]:.0f}"
     NUM["CiWidthTen"] = f"{cva[(cva.method == CS2) & (cva.mem == 10.0)].ci_relwidth.iloc[0]:.2f}"
-    NUM["CiOneSidedBigLo"] = f"{100 * main3.ci95_f_big.min():.0f}"
+    NUM["CiOneSidedBigLo"] = lo1(main3.ci95_f_big.min())
     ws = main3.loc[main3.ci95_f_big.idxmin()]
     NUM["CiOneSidedBigWorst"] = DS_LABEL.get(ws.dataset, ws.dataset)
     NUM["CiWidthGain"] = f"{100 * ((main3.ci_relwidth / main3.ci_relwidth_f).median() - 1):.0f}"
