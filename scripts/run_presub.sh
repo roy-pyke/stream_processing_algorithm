@@ -12,7 +12,8 @@
 #          run_accuracy.sh, the triple-table variants, CocoSketch and the index-charged runs (#24)
 #   ci     (#18) the methods of the coverage table again, with the anchor columns that the
 #          two-sided intervals need (estimates identical to results/acc)
-#   timing update throughput of the new configurations (sequential, one job; run on an idle machine)
+#   timing update throughput of the new configurations (sequential, one job; run on an idle machine);
+#          superseded by scripts/run_timing.sh, which times these configurations too
 set -u
 cd "$(dirname "$0")/.."
 PART=${1:-all}

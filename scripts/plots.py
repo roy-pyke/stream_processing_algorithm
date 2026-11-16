@@ -289,18 +289,18 @@ if "hydra" in P.columns:
     put("HydraVsCalThree", (P["hydra"] / col(P, RSC3)).loc[hyi], 2)
     hyr = [i for i in P.index if np.isfinite(P.loc[i, "hydra"]) and i[0] in ("taxi", "mawi")]
     if hyr:
-        put("ResVsHydraReal", (P["res"] / P["hydra"]).loc[hyr], 1)
-        put("OmniAnyVsHydraReal", (P["omnibest"] / P["hydra"]).loc[hyr], 1)
-        put("HydraVsCalTwoReal", (P["hydra"] / col(P, RSC2)).loc[hyr], 1)
+        put("HydraVsResReal", (P["hydra"] / P["res"]).loc[hyr], 1)        # > 1: the reservoir is more accurate
+        put("HydraVsOmniAnyReal", (P["hydra"] / P["omnibest"]).loc[hyr], 1)
+        put("HydraVsCalTwoReal", (P["hydra"] / col(P, RSC2)).loc[hyr], 0)
         put("HydraVsCsReal", (P["hydra"] / col(P, CS2)).loc[hyr], 1)
         if USSC3 in P.columns:
             put("HydraVsUssCalThreeReal", (P["hydra"] / P[USSC3]).loc[hyr], 1)
         hr_ = acc[(acc.method == "hydra") & acc.dataset.isin(["taxi", "mawi"])]
         for ds_, t_ in (("taxi", "Taxi"), ("mawi", "Mawi")):
             x_ = hr_[hr_.dataset == ds_]
-            if len(x_):
-                NUM[f"TpHydra{t_}"] = f"{1e3 / x_.ns_per_rec.median():.3f}"   # million records/s (accuracy runs, 4 in parallel)
-    hrun = acc[acc.method == "hydra"]
+            if len(x_):   # records per second, two significant digits (accuracy runs, four JVMs at a time)
+                NUM[f"TpHydra{t_}"] = f"{float(f'{1e9 / x_.ns_per_rec.median():.2g}'):,.0f}".replace(",", "\\,")
+    hrun = acc[(acc.method == "hydra") & acc.dataset.str.startswith("zipf")]
     if len(hrun):
         NUM["TpHydraLo"], NUM["TpHydraHi"] = f"{1e3 / hrun.ns_per_rec.max():.2f}", f"{1e3 / hrun.ns_per_rec.min():.2f}"
 if os.path.exists("results/time/hydra.log"):

@@ -51,9 +51,9 @@ extends to range predicates through dyadic counters, merges across partitions, a
 streams by selecting pair tables. On six streams, calibrated row samples are
 \NumOmniAnyVsBestRowLo--\NumOmniAnyVsBestRowHi$\times$ more accurate than the best of
 \NumOmniFamilySize{} configurations of the sketch-in-sketch synopsis \omni at equal memory, including the
-authors' implementation, which we run unmodified and port bit-exactly. With tuple aggregation they also
-beat Hydra, and calibration makes Unbiased Space-Saving and CocoSketch \NumUssCalTwoVsUssGm$\times$ and
-\NumCocoCalTwoVsCocoGm$\times$ more accurate on average. The update rate is comparable to that of an optimised \omni.
+authors' implementation, which we run unmodified and port bit-exactly. They also beat Hydra,
+by \NumHydraVsCalTwoRealLo--\NumHydraVsCalTwoRealHi$\times$ on the real streams, and calibration makes Unbiased Space-Saving and CocoSketch \NumUssCalTwoVsUssGm$\times$ and
+\NumCocoCalTwoVsCocoGm$\times$ more accurate on average. Their update rate is \NumTpCalTwoVsOmniLo--\NumTpCalTwoVsOmniHi$\times$ that of an optimised \omni.
 \end{abstract}
 
 \begin{CCSXML}
@@ -615,8 +615,8 @@ extension of~\cite{omni} (one sketch per dyadic level of each range attribute, u
 the authors' estimator and a threshold estimator, oracle $B$, 32 bits per stored hash and per non-empty
 cell) in the six configurations $(64,2),(256,2),(1024,2),(256,3),(1024,1),(4096,1)$.
 
-\paragraph{Other baselines.} Hydra~\cite{hydra}: the adaptation shipped with the code of~\cite{omni}, on the
-five-attribute streams only ($2^p-1$ updates per record). USS~\cite{ting-uss} on the full tuple with a
+\paragraph{Other baselines.} Hydra~\cite{hydra}: the adaptation shipped with the code of~\cite{omni}, on
+all streams but DMV ($2^p-1$ updates per record: 31 on the synthetic streams, 4\,095 on Taxi). USS~\cite{ting-uss} on the full tuple with a
 hash index and a heap. CocoSketch~\cite{coco}: the software version of the authors' code, two arrays of
 (full key, count) buckets, the smaller of the two hashed buckets is incremented and takes over the key with
 probability $1/\text{count}$; queries sum matching buckets. aSH: a port of the journal version's sampling
@@ -669,16 +669,13 @@ medians of 3 runs on one core of an Apple M4 Pro, one job at a time, with the st
 
 \paragraph{Synopses for ad-hoc predicates on streams.} Hydra~\cite{hydra} keeps a universal
 sketch~\cite{univmon} per attribute subset and is exponential in $p$; our tables are a Hydra truncated at
-order two or three whose answers are refined by a sample, and the experiments show that this keeps most
-of its accuracy at polynomial cost. \omni~\cite{omni,omni-sr,omni-vldbj} replaces Hydra's subsets by
+order two or three whose answers are refined by a sample, and the experiments show that this is on par
+with Hydra on five attributes and far more accurate on ten or more, at polynomial cost. \omni~\cite{omni,omni-sr,omni-vldbj} replaces Hydra's subsets by
 per-attribute sketches with embedded samples; Section~\ref{sec:anatomy} explains why intersected per-cell
 samples are dominated by rows. To our knowledge neither version is compared with a row sample under an
 accounting of 32 bits per value, nor with multi-objective samples. CocoSketch~\cite{coco} and
 USS~\cite{ting-uss} keep full keys with unbiased replacement and answer partial-key queries by summing;
-calibration improves both. Lower bounds for projected frequencies~\cite{projfreq} show that guarantees
-relative to the answer are not available for arbitrary column subsets in sub-exponential space;
-Theorem~\ref{thm:calbound} is relative to the anchor, which equals the answer only up to the order of the
-tables.
+calibration improves both.
 
 \paragraph{Calibration and precomputed aggregates.} Calibrating samples to known totals is classical in
 survey sampling~\cite{sarndal,calibration}, where the auxiliary totals are fixed by design. AQP\texttt{++}~\cite{aqppp}

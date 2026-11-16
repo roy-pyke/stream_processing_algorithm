@@ -6,7 +6,7 @@
 \centering
 \includegraphics[width=\textwidth]{figs/nae_vs_mem.pdf}
 \caption{Normalized absolute error on record-sampled queries with $k\ge2$ predicates versus memory
-(mean of 5 seeds; Hydra: one run, five-attribute streams only; lower is better).
+(mean of 5 seeds; Hydra: one run, not on DMV; lower is better).
 ``\omni (best)'' is the best of \NumOmniFamilySize{} variants, chosen separately for every point.}
 \label{fig:nae}
 \Description{Log-log plots of error versus memory for seven streams; the sample-based methods fall with memory, OmniSketch flattens.}
@@ -45,8 +45,12 @@ the Zipf streams. Its error falls roughly as $1/M$, that of a sample as $M^{-1/2
 calibrated sample), so the calibrated uniform sample is ahead at small and medium budgets and Hydra at the
 largest ones. With tuple aggregation the calibrated sample is ahead throughout: Hydra's error is
 \NumHydraVsUssCalThreeLo--\NumHydraVsUssCalThreeHi{} times that of \textsc{USS+C3} at every budget.
-Hydra processes \NumTpHydraIdle{} million records per second, compared with \NumTpZipfCalTwo{} for
-\textsc{RS+C2}, and its cost doubles with every attribute; we could not run it on the real streams.
+Hydra ingests \NumTpHydraIdle{} million records/s (\textsc{RS+C2}: \NumTpZipfCalTwo), and its cost
+doubles with every attribute: about \NumTpHydraMawi{} and \NumTpHydraTaxi{} records/s on MAWI and Taxi
+(four runs at a time); DMV ($p=15$) is out of reach. On MAWI and Taxi all subsets share one grid of
+sketches and collisions dominate: Hydra's error is \NumHydraVsCalTwoRealLo--\NumHydraVsCalTwoRealHi$\times$
+that of \textsc{RS+C2}, \NumHydraVsResRealLo--\NumHydraVsResRealHi$\times$ that of the reservoir and
+\NumHydraVsOmniAnyRealLo--\NumHydraVsOmniAnyRealHi$\times$ that of the best \omni variant.
 
 \paragraph{USS and CocoSketch.} Both aggregate full tuples, and both behave alike: the error of CocoSketch
 is \NumCocoVsUssLo--\NumCocoVsUssHi{} times that of USS on the non-uniform streams. They beat the

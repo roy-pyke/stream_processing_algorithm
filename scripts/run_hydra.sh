@@ -4,7 +4,8 @@
 # unmodified through repro/omni_java/Harness.java. Every record updates 2^p - 1 subpopulations,
 # so this is run on the 5-attribute synthetic streams (and once on the 9-attribute journal-style
 # stream with HYDRA_P9=1); HYDRA_REAL=1 adds MAWI (10 attributes, 1,023 updates per record) and
-# Taxi (12 attributes, 4,095), one JVM per budget (hours each). The sketch seeds are fixed in that
+# Taxi (12 attributes, 4,095), one JVM per budget (on an M4 Pro, 4 at a time: about 1 h per budget
+# on MAWI and 2-2.6 h on Taxi; HYDRA_XMX=2g suffices). The sketch seeds are fixed in that
 # code: one repetition. HYDRA_XMX sets the JVM heap (default 6g).
 # Output is converted to the format of `bench acc` (method "hydra") under results/hydra/conv
 # and aggregated into results/agg_hydra.csv.
