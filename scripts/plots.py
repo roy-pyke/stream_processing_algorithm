@@ -6,6 +6,7 @@
 """
 import json
 import os
+import re
 
 import matplotlib
 
@@ -491,6 +492,61 @@ if os.path.exists("results/agg_journal.csv"):
         put(f"{tag}OmniVsResj", c("omniv") / c("resj"), 1)
         put(f"{tag}PvldbVsRes", c("omnijs") / c("res"), 1)
         put(f"{tag}CalTwoVsRes", c("res") / c(RSC2), 1)
+
+# ====================================================================== bounded deletions (#25)
+if os.path.exists("results/agg_deletes.csv"):
+    dl = pd.read_csv("results/agg_deletes.csv")
+    dcols_ = [c for c in ["nae0m", "naej", "mrej", "held", "M", "ns_upd", "mem_mb"] if c in dl.columns]
+    dm = dl.groupby(["perc", "method", "mem"], as_index=False)[dcols_].mean()
+    dmeth = ["s2", "ash", "res", "rsc2", "rsc3"]
+    dlab = {"s2": "OmniSketch (journal code)", "ash": "aSH (journal code)", "res": "RS", "rsc2": "RS+C2", "rsc3": "RS+C3"}
+    percs = sorted(dm.perc.unique())
+    with open("paper/tables/deletes.tex", "w") as f:
+        f.write("\\begin{tabular}{l" + "r" * (2 * len(percs)) + "}\n\\toprule\n")
+        f.write(f" & \\multicolumn{{{len(percs)}}}{{c}}{{record-sampled queries ($k\\ge2$)}} & \\multicolumn{{{len(percs)}}}{{c}}{{journal-style queries ($k=1..9$)}} \\\\\n")
+        f.write("Deletions per residue record & " + " & ".join(f"{x:g}" for x in percs * 2) + " \\\\\n\\midrule\n")
+        for mem in sorted(dm.mem.unique()):
+            f.write(f"\\multicolumn{{{1 + 2 * len(percs)}}}{{l}}{{\\emph{{{mem:g}\\,MB}}}} \\\\\n")
+            for key in dmeth:
+                cells = []
+                for colname in ("nae0m", "naej"):
+                    for x in percs:
+                        r_ = dm[(dm.perc == x) & (dm.method == key) & (dm.mem == mem)]
+                        cells.append(fmt_sci(r_[colname].iloc[0]) if len(r_) else "--")
+                f.write(dlab[key] + " & " + " & ".join(cells) + " \\\\\n")
+        f.write("\\bottomrule\n\\end{tabular}\n")
+    note("bounded deletions: NAE record-sampled k>=2", dm.pivot_table(index=["mem", "perc"], columns="method", values="nae0m"))
+    note("bounded deletions: NAE journal-style", dm.pivot_table(index=["mem", "perc"], columns="method", values="naej"))
+    note("bounded deletions: MRE journal-style", dm.pivot_table(index=["mem", "perc"], columns="method", values="mrej"))
+    for colname, tag in (("nae0m", "R"), ("naej", "J")):
+        T = dm.pivot_table(index=["mem", "perc"], columns="method", values=colname)
+        c = lambda k: T[k] if k in T.columns else pd.Series(np.nan, index=T.index)
+        put(f"Del{tag}OmniVsCalTwo", c("s2") / c("rsc2"), 0)     # > 1: RS+C2 more accurate than their OmniSketch
+        put(f"Del{tag}AshVsCalTwo", c("ash") / c("rsc2"), 1)
+        put(f"Del{tag}OmniVsRes", c("s2") / c("res"), 1)
+        put(f"Del{tag}AshVsRes", c("ash") / c("res"), 2)
+        put(f"Del{tag}ResVsCalTwo", c("res") / c("rsc2"), 1)
+        put(f"Del{tag}CalThreeVsCalTwo", c("rsc3") / c("rsc2"), 2)
+        for key, mtag in (("s2", "Omni"), ("ash", "Ash"), ("res", "Res"), ("rsc2", "CalTwo")):
+            if key in T.columns and 0.0 in T.index.get_level_values("perc") and max(percs) > 0:
+                g_ = [T.loc[(m_, max(percs)), key] / T.loc[(m_, 0.0), key] for m_ in sorted(dm.mem.unique())
+                      if (m_, max(percs)) in T.index and (m_, 0.0) in T.index]
+                put(f"Del{tag}Growth{mtag}", np.array(g_), 1)    # error at the largest deletion ratio / no deletions
+    if "held" in dm.columns:
+        h = dm[dm.method == "rsc2"].assign(frac=lambda x: x.held / x.M)
+        for x in percs:
+            r_ = h[h.perc == x].frac
+            if len(r_):
+                NUM[f"DelHeld{str(x).replace('.', 'p').replace('0p33', 'Third').replace('9p0', 'Nine').replace('3p0', 'Three').replace('1p0', 'One').replace('0p0', 'Zero')}"] = f"{100 * r_.mean():.0f}"
+    if os.path.exists("results/deletes/streams.txt"):
+        for ln in open("results/deletes/streams.txt"):
+            m_ = re.match(r"([\d.]+) updates=(\d+) inserts=(\d+) deletes=(\d+) residue=(\d+) peak_live=(\d+)", ln)
+            if m_:
+                x, upd, peak, res_ = float(m_.group(1)), int(m_.group(2)), int(m_.group(6)), int(m_.group(5))
+                tag = {0.33: "Third", 1.0: "One", 3.0: "Three", 9.0: "Nine"}.get(x)
+                if tag:
+                    NUM[f"DelPeak{tag}"] = f"{peak / res_:.2f}"
+                    NUM[f"DelUpdates{tag}"] = f"{upd / 1e6:.1f}"
 
 # ====================================================================== timing
 if os.path.exists("results/time/time.log"):

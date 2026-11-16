@@ -33,6 +33,7 @@ make                                   # bin/bench bin/gen_synth bin/mkworkload 
 g++ -O3 -march=native -std=c++17 -o bin/bias_probe src/bias_probe.cpp
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
 scripts/setup_upstream.sh              # clones github.com/wiegerpunter/omnisketch @ 8dc67b5 into ext/, builds it
+scripts/setup_omni_deletes.sh          # journal version's code (omni-deletes @ 17b969e) + harness, for the deletion runs
                                        # (uses the jars shipped in that repository; downloads Temurin JDK 21 if no javac)
 ```
 
@@ -83,6 +84,8 @@ scripts/run_accuracy.sh 8        # accuracy matrix (5 seeds)
 scripts/run_presub.sh dmvfull 6  # DMV (large): every method of the main table, 7 budgets, 5 seeds
 OUT=results/acc3 METHODS="ussc:0:0.15:0.15 csh:0:1:0.15:0.15" scripts/run_accuracy.sh 8   # triple-table variants
 scripts/run_journal_setting.sh 3 # journal-version setting (9 attributes, their baselines and accounting)
+scripts/run_deletes.sh 3        # bounded deletions in the journal's setting (their OmniSketch and aSH code vs RS, RS+C2/C3)
+.venv/bin/python scripts/deletes.py   # -> results/agg_deletes.csv
 scripts/run_hydra.sh 2           # the authors' Hydra adaptation on the 5-attribute streams
 HYDRA_REAL=1 HYDRA_XMX=2g scripts/run_hydra.sh 4   # ... and on Taxi and MAWI (one JVM per budget; hours)
 scripts/run_extra.sh 4           # ablations, attribute scaling

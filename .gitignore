@@ -24,6 +24,7 @@ results/logs/
 results/abl/
 results/census/
 results/journal/
+results/deletes/
 results/bias/
 results/bias_first_batch/
 results/hydra/
