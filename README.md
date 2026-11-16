@@ -114,3 +114,8 @@ the workloads and the seeds, not on the hardware; across platforms they agree st
 bit-identical, because a few decisions go through the platform's `log`/`pow`. Timing results
 (`scripts/run_timing.sh`) must be taken on an otherwise idle machine; those in `results/time/` were taken on an
 Apple M4 Pro, and `results/time/i5-1245U/` keeps an earlier run on an Intel i5-1245U laptop.
+
+## License
+
+Code: MIT (`LICENSE`), except `src/omni_java_compat.hpp`, a port of the authors' unlicensed OmniSketch
+code kept for validation. Paper sources and figures: CC BY 4.0. Details in `NOTICE`.
