@@ -4,6 +4,7 @@
   convert.py taxi   <yellow_tripdata_2019-01.parquet> <out.bin>
   convert.py census <USCensus1990.data.txt>           <out.bin>
   convert.py dmv    <Vehicle__Snowmobile__and_Boat_Registrations.csv> <out.bin>
+  convert.py snmp   <directory of the extracted fall03.tar.gz>       <out.bin>
 
 Output: "STRM" | u32 p | u64 n | n*p u32 (row-major). All attributes are mapped
 to non-negative 32-bit integers (equality semantics are preserved).
@@ -93,5 +94,95 @@ def dmv(src, dst):
     write(dst, [np.concatenate(x) for x in parts], names)
 
 
+# SNMP fields of a record, in the order of the authors' Parser.attrMap (indices 0..23)
+SNMP_FIELDS = ["timestamp", "AP", "sysUpTime", "sysDescr", "ifIndex", "ifDescr", "ifType", "ifSpeed", "ifInOctets",
+               "ifInUcastPkts", "ifInErrors", "ifInDiscards", "ifOutOctets", "ifOutUcastPkts", "ifOutErrors",
+               "ifOutDiscards", "awcDot11AssociatedStationCount", "awcDot11ReassociatedStationCount",
+               "awcDot11RoamedStationCount", "awcDot11DeauthenticateCount", "awcDot11DisassociateCount",
+               "awcFtClientSTASelf", "awcFtBridgeSelf", "awcFtRepeaterSelf"]
+SNMP_ATTRS = [12, 14, 11, 1, 5, 13, 9, 8, 10, 21, 15]      # the 11 attributes of the OmniSketch paper (CompareBaselines)
+SNMP_OPTIONAL = {3, 16, 17, 18, 19, 20}                     # may be missing; every other field must be present
+SNMP_DAYS = ("03110", "03111")                              # fileStartCondition "03110_OR_03111": 1-19 Nov 2003
+
+
+def _jsplit(line):
+    """String.split(",") of Java: trailing empty strings are removed."""
+    a = line.rstrip("\r\n").split(",")
+    while a and a[-1] == "":
+        a.pop()
+    return a
+
+
+def snmp_records(path):
+    """Records of one .snmp.gz file as the authors' loader builds them (omniVLDB.RecordSNMP and
+    ProcessedStreamLoaderGeneric): the first 4 lines and comment lines are skipped; a record starts at
+    a "sys" line (4 or 5 fields: sys, timestamp, AP, sysUpTime[, sysDescr]) and takes the interface fields
+    of the last well-formed "if" line (23 fields) before the next "sys" line. Strings are kept as strings
+    (the authors use String.hashCode; we dictionary-code later)."""
+    import gzip
+
+    rec = None
+    with gzip.open(path, "rt", errors="replace") as f:
+        for k, line in enumerate(f):
+            if k < 4 or not line.strip() or line[0] == "#":
+                continue
+            a = _jsplit(line)
+            if not a:
+                continue
+            if a[0][:1] == "s":
+                if rec is not None:
+                    yield rec
+                rec = None
+                if a[0] == "sys" and len(a) in (4, 5):
+                    rec = [None] * 24
+                    try:
+                        rec[0], rec[1], rec[2] = int(a[1]), a[2], int(a[3])
+                    except ValueError:
+                        rec = None
+                        continue
+                    if len(a) == 5:
+                        rec[3] = a[4]
+            elif a[0] == "if" and rec is not None and len(a) == 23:
+                try:
+                    vals = [int(a[3]), a[4]] + [int(x) for x in a[5:15]] + [int(x) if x != "" else None for x in a[15:22]] + [int(a[22])]
+                except ValueError:
+                    continue
+                rec[4:24] = vals
+    if rec is not None:
+        yield rec
+
+
+def snmp(src, dst):
+    """Dartmouth campus SNMP trace (CRAWDAD dartmouth/campus, fall03.tar.gz), the "SNMP" stream of the
+    OmniSketch paper: the days 031101-031119, records with every non-optional field present, ordered by
+    timestamp (stable), the 11 attributes the authors use, dictionary-coded in order of first appearance."""
+    import os
+
+    days = []
+    for root, dirs, _ in os.walk(src):
+        days += [os.path.join(root, d) for d in dirs if d.startswith(SNMP_DAYS)]
+    days.sort(key=os.path.basename)
+    if not days:
+        sys.exit(f"no day directories 03110*/03111* below {src}")
+    recs, files, dropped = [], 0, 0
+    for day in days:
+        for fn in sorted(os.listdir(day)):
+            if not fn.endswith(".snmp.gz"):
+                continue
+            files += 1
+            for r in snmp_records(os.path.join(day, fn)):
+                if any(r[i] is None for i in range(24) if i not in SNMP_OPTIONAL):
+                    dropped += 1
+                else:
+                    recs.append(r)
+    print(f"{len(days)} days, {files} files, {len(recs)} records ({dropped} dropped for missing fields)")
+    recs.sort(key=lambda r: r[0])
+    cols = []
+    for i in SNMP_ATTRS:
+        d = {}
+        cols.append(np.fromiter((d.setdefault(r[i], len(d)) for r in recs), dtype=np.uint32, count=len(recs)))
+    write(dst, cols, [SNMP_FIELDS[i] for i in SNMP_ATTRS])
+
+
 if __name__ == "__main__":
-    {"taxi": taxi, "census": census, "dmv": dmv}[sys.argv[1]](sys.argv[2], sys.argv[3])
+    {"taxi": taxi, "census": census, "dmv": dmv, "snmp": snmp}[sys.argv[1]](sys.argv[2], sys.argv[3])

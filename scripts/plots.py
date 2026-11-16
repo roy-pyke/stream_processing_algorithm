@@ -53,8 +53,9 @@ STYLE = {
 OMNI_GRID = ["omnil", "omni:28:3", "omni:64:2", "omni:256:2", "omni:1024:2", "omni:256:3", "omni:1024:1", "omni:4096:1", "omni:4096:2"]
 OMNI_FAMILY = ["omnijs", "omnip", "omniv"] + OMNI_GRID
 DS_LABEL = {"zipf10_5M": r"Zipf $\alpha{=}1.0$", "zipf13_5M": r"Zipf $\alpha{=}1.3$", "zipf15_5M": r"Zipf $\alpha{=}1.5$",
-            "unif_5M": "Uniform", "taxi": "Taxi", "mawi": "MAWI", "dmv": "DMV"}
-DATASETS = ["zipf10_5M", "zipf13_5M", "zipf15_5M", "unif_5M", "taxi", "mawi", "dmv"]
+            "unif_5M": "Uniform", "taxi": "Taxi", "mawi": "MAWI", "dmv": "DMV", "snmp": "SNMP", "caida": "CAIDA"}
+# streams in the order of the figures and tables; those without results are left out (SNMP and CAIDA: #12)
+DATASETS = ["zipf10_5M", "zipf13_5M", "zipf15_5M", "unif_5M", "taxi", "mawi", "dmv", "snmp", "caida"]
 INK, MUTED, GRID = "#1a1a19", "#6b6a63", "#e4e2da"
 
 plt.rcParams.update({
@@ -139,8 +140,10 @@ if os.path.exists("results/agg_acc2.csv"):   # CocoSketch and index-charged runs
     acc = pd.concat([acc, a2_[a2_.method.isin([COCO, COCOC1, COCOC2]) | a2_.method.str.endswith(IX)]], ignore_index=True)
 if os.path.exists("results/agg_dmv.csv"):    # full DMV matrix (scripts/run_presub.sh dmvfull) replaces the partial one
     acc = pd.concat([acc[acc.dataset != "dmv"], pd.read_csv("results/agg_dmv.csv")], ignore_index=True)
+if os.path.exists("results/agg_new.csv"):    # SNMP and CAIDA (scripts/run_new_traces.sh, #12)
+    acc = pd.concat([acc, pd.read_csv("results/agg_new.csv")], ignore_index=True)
 DATASETS =[d for d in DATASETS if d in set(acc.dataset)]
-REAL = [d for d in DATASETS if d in ("taxi", "mawi", "dmv")]
+REAL = [d for d in DATASETS if d in ("taxi", "mawi", "dmv", "snmp", "caida")]
 # Primary metric: NAE on record-sampled queries with k >= 2 predicates (workload definition of the OmniSketch paper).
 kmax = 6
 acc["nae0m"] = acc[[f"nae0_k{k}" for k in range(2, kmax + 1)]].mean(axis=1)
@@ -151,12 +154,12 @@ metrics = ["nae0", "nae0m", "nae1", "mre0", "mre1"] + dcols + kcols + nkcols
 m = with_omnibest(mean_over_seeds(acc, metrics), metrics)
 have = set(m.method.unique())
 NUM["OmniFamilySize"] = str(len(OMNI_FAMILY))
-NUM["RealStreams"] = {1: "one", 2: "two", 3: "three"}[len(REAL)]
+NUM["RealStreams"] = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}[len(REAL)]
 
 # ---------------------------------------------------------------- Fig: NAE vs memory
 order = ["omnijs", "omnibest", "hydra", "res", COCO, RSC2, USSC3, CSH]
-ncol_ = 4 if len(DATASETS) > 6 else 3
-fig, axes = plt.subplots(2, ncol_, figsize=(7.0 if ncol_ == 3 else 8.6, 4.1), sharex=True)
+ncol_ = 5 if len(DATASETS) > 8 else 4 if len(DATASETS) > 6 else 3
+fig, axes = plt.subplots(2, ncol_, figsize=({3: 7.0, 4: 8.6, 5: 10.4}[ncol_], 4.1), sharex=True)
 for ax in axes.flat[len(DATASETS):]:
     ax.axis("off")
 for ax, ds in zip(axes.flat, DATASETS):

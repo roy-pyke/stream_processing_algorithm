@@ -88,6 +88,7 @@ HYDRA_REAL=1 HYDRA_XMX=2g scripts/run_hydra.sh 4   # ... and on Taxi and MAWI (o
 scripts/run_extra.sh 4           # ablations, attribute scaling
 scripts/run_bias.sh 8 && python scripts/bias_check.py ; scripts/run_bias_probe.sh
 scripts/run_presub.sh all 8      # CocoSketch, index charged, interval diagnostics, ranges, merging, pair selection
+scripts/run_new_traces.sh 6       # SNMP and CAIDA, once their raw data is in data/raw (docs/datasets.md)
 scripts/run_timing.sh            # all throughputs and query latencies, Hydra included (idle machine, one job)
 
 python scripts/aggregate.py results/acc     results/agg_acc.csv     work
