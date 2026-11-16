@@ -717,7 +717,8 @@ comparison against deletion-aware samplers.
 than the answer. The update cost of pair tables grows quadratically in $p$, and selecting tables helps
 only if the workload concentrates on few pairs (Section~\ref{sec:census}). Hash stratification helps only
 for rare values of attributes whose tail carries little mass. \emph{Latency and hardware.} \omni answers
-faster than a scanned row sample unless the bucket index is used (Section~\ref{sec:speed}); we did not
+faster than a scanned row sample; the bucket index brings the latency to
+\NumQlatIndexVsOmniLo--\NumQlatIndexVsOmniHi$\times$ \omni's (Section~\ref{sec:speed}). We did not
 evaluate multi-core ingestion.
 
 \section{Conclusion}
